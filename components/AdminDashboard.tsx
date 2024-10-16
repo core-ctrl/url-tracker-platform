@@ -4,12 +4,13 @@ import { ref, onValue, remove, update } from "firebase/database";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { MapPin, Trash, Edit, Globe, User, Link, Smartphone, Monitor, Maximize2, ExternalLink, Clock, RefreshCw, Calendar, Tag } from "lucide-react";
+import { MapPin, Trash, Edit, Globe, User, Link, Smartphone, Monitor, Maximize2, ExternalLink, Clock, RefreshCw, Calendar, Tag, Link2Icon } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast"
 import dynamic from 'next/dynamic';
+import { useRouter } from "next/navigation";
 
 const Map = dynamic(() => import('./Map'), {
   ssr: false,
@@ -50,7 +51,9 @@ const AdminDashboard = () => {
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
     const [editedLocation, setEditedLocation] = useState<Location | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
-    const [locationsPerPage] = useState(10);
+    const [locationsPerPage] = useState(15);
+
+    const router = useRouter();
 
     const { toast } = useToast()
 
@@ -58,7 +61,10 @@ const AdminDashboard = () => {
         const locationsRef = ref(database, 'locations');
         onValue(locationsRef, (snapshot) => {
             const data = snapshot.val();
-            const locationArray = data ? Object.entries(data).map(([id, loc]) => ({ ...loc as Location, id })) : [];
+                const locationArray = data ? Object.entries(data)
+                .map(([id, loc]) => ({ ...loc as Location, id }))
+                .filter(loc => loc.createdAt)
+                .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) : [];
             setLocations(locationArray);
         });
     }, []);
@@ -138,8 +144,10 @@ const AdminDashboard = () => {
                 <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead>Nickname</TableHead>
-                            <TableHead>IP</TableHead>
+                        <TableHead>Created At</TableHead>
+                        <TableHead>Last Updated</TableHead>
+                        <TableHead>Nickname</TableHead>
+                        <TableHead>IP</TableHead>
                             <TableHead>Coordinates</TableHead>
                             <TableHead>Address</TableHead>
                             <TableHead>Actions</TableHead>
@@ -148,6 +156,8 @@ const AdminDashboard = () => {
                     <TableBody>
                         {currentLocations.map((location: Location) => (
                             <TableRow key={location.id}>
+                                <TableCell>{momentAgo(location.createdAt || 0)}</TableCell>
+                                <TableCell>{momentAgo(location.updatedAt || 0)}</TableCell>
                                 <TableCell>{location.nickname}</TableCell>
                                 <TableCell>{location.ip}</TableCell>
                                 <TableCell>
@@ -174,16 +184,25 @@ const AdminDashboard = () => {
                                             size="sm"
                                             onClick={() => handleEditLocation(location)}
                                         >
-                                            <Edit className="w-4 h-4 mr-2" />
-                                            Edit
+                                            <Edit className="w-4 h-4" />
+                                            
                                         </Button>
                                         <Button
                                             variant="destructive"
                                             size="sm"
                                             onClick={() => handleRemoveLocation(location.id || '')}
                                         >
-                                            <Trash className="w-4 h-4 mr-2" />
-                                            Remove
+                                            <Trash className="w-4 h-4" />
+                                            
+                                        </Button>
+                                        <Button 
+                                        variant="outline"
+                                        size="icon"
+                                        onClick={() => 
+                                            router.push(`/locations/${location.id}`)
+                                        }
+                                        >
+                                            <Link2Icon className="w-4 h-4" />
                                         </Button>
                                     </div>
                                 </TableCell>
@@ -204,7 +223,13 @@ const AdminDashboard = () => {
                             </PaginationItem>
                         ))}
                         <PaginationItem>
-                            <PaginationNext onClick={() => paginate(currentPage + 1)} />
+                            <PaginationNext  disabled={currentPage === Math.ceil(locations.length / locationsPerPage)}
+                             onClick={() => {
+                                if (currentPage < Math.ceil(locations.length / locationsPerPage)) {
+                                    paginate(currentPage + 1);
+                                }
+                             }} 
+                                />
                         </PaginationItem>
                     </PaginationContent>
                 </Pagination>
@@ -219,13 +244,13 @@ const AdminDashboard = () => {
                         <CardContent className="p-6">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                    <InfoItem icon={<Globe className="h-4 w-4" />} label="IP" value={selectedLocation.ip} />
+                                    <InfoItem icon={<Globe className="h-4 w-4" />} label="IP" value={selectedLocation.ip || ''} />
                                     <InfoItem icon={<MapPin className="h-4 w-4" />} label="Coordinates" value={`${selectedLocation.latitude?.toFixed(6)}, ${selectedLocation.longitude?.toFixed(6)}`} />
-                                    <InfoItem icon={<User className="h-4 w-4" />} label="User ID" value={selectedLocation.userId} />
-                                    <InfoItem icon={<Link className="h-4 w-4" />} label="Share Link ID" value={selectedLocation.shareLinkId} />
-                                    <InfoItem icon={<Smartphone className="h-4 w-4" />} label="Device ID" value={selectedLocation.deviceId} />
-                                    <InfoItem icon={<Monitor className="h-4 w-4" />} label="Device Type" value={selectedLocation.deviceType} />
-                                    <InfoItem icon={<Globe className="h-4 w-4" />} label="User Agent" value={selectedLocation.userAgent} />
+                                    <InfoItem icon={<User className="h-4 w-4" />} label="User ID" value={selectedLocation.userId || ''} />
+                                    <InfoItem icon={<Link className="h-4 w-4" />} label="Share Link ID" value={selectedLocation.shareLinkId || ''} />
+                                    <InfoItem icon={<Smartphone className="h-4 w-4" />} label="Device ID" value={selectedLocation.deviceId || ''} />
+                                    <InfoItem icon={<Monitor className="h-4 w-4" />} label="Device Type" value={selectedLocation.deviceType || ''} />
+                                    <InfoItem icon={<Globe className="h-4 w-4" />} label="User Agent" value={selectedLocation.userAgent || ''} />
                                 </div>
                                 <div className="space-y-2">
                                     <InfoItem icon={<Maximize2 className="h-4 w-4" />} label="Screen Size" value={`${selectedLocation.screenWidth}x${selectedLocation.screenHeight}`} />
@@ -234,7 +259,7 @@ const AdminDashboard = () => {
                                     <InfoItem icon={<Clock className="h-4 w-4" />} label="User Timezone" value={selectedLocation.userTimezone} />
                                     <InfoItem icon={<RefreshCw className="h-4 w-4" />} label="Updated" value={momentAgo(selectedLocation.updatedAt || 0)} />
                                     <InfoItem icon={<Calendar className="h-4 w-4" />} label="Created" value={momentAgo(selectedLocation.createdAt || 0)} />
-                                    <InfoItem icon={<Tag className="h-4 w-4" />} label="Nickname" value={selectedLocation.nickname} />
+                                    <InfoItem icon={<Tag className="h-4 w-4" />} label="Nickname" value={selectedLocation.nickname || ''} />
                                 </div>
                             </div>
                             <div className="mt-6">
