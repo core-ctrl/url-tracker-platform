@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   PlusCircle, Trash2, Pencil, Copy, MapPin,
-  Link as LinkIcon, ExternalLink, Hash, Image,
+  Link as LinkIcon, ExternalLink, Hash, Image as ImageIcon,
   Calendar, AlignLeft, Type,
 } from 'lucide-react';
 import {
@@ -302,7 +302,7 @@ const ShareLinksPage = () => {
               { name: 'name', label: 'Name', icon: <LinkIcon className="h-3.5 w-3.5" />, placeholder: 'Campaign name', required: true },
               { name: 'title', label: 'Page Title', icon: <Type className="h-3.5 w-3.5" />, placeholder: 'Title shown on tracking page' },
               { name: 'description', label: 'Description', icon: <AlignLeft className="h-3.5 w-3.5" />, placeholder: 'Optional description' },
-              { name: 'imageUrl', label: 'Image URL', icon: <Image className="h-3.5 w-3.5" />, placeholder: 'https://…' },
+              { name: 'imageUrl', label: 'Image URL', icon: <ImageIcon className="h-3.5 w-3.5" />, placeholder: 'https://…' },
             ].map(({ name, label, icon, placeholder, required }) => (
               <div key={name} className="space-y-1.5">
                 <Label htmlFor={name} className="flex items-center gap-1.5 text-sm">

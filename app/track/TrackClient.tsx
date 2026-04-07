@@ -9,7 +9,7 @@ import { useSearchParams } from "next/navigation";
 import { Location } from "@/components/interfaces/location.interface";
 import { ShareLink } from "@/components/interfaces/sharelink.interface";
 import {
-  Home, Search, PlusSquare, Heart, User,
+  Home, Search, PlusSquare, Heart,
   MoreHorizontal, Bookmark, MessageCircle, Send,
   Compass,
 } from "lucide-react";
@@ -26,15 +26,6 @@ const STORIES = [
   { name: "rob.x", avatar: "https://i.pravatar.cc/48?img=14" },
   { name: "a_paris", avatar: "https://i.pravatar.cc/48?img=20" },
 ];
-
-function geolocationErrorMessage(code: number): string {
-  switch (code) {
-    case 1: return "Location permission was denied.";
-    case 2: return "Your position could not be determined.";
-    case 3: return "Location request timed out.";
-    default: return "Could not read your location.";
-  }
-}
 
 // Instagram SVG logo
 function InstagramLogo() {
