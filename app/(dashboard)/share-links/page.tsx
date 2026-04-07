@@ -20,6 +20,7 @@ import { ref, onValue, remove, update, set } from "firebase/database";
 import { useToast } from "@/hooks/use-toast";
 import { v4 as uuidv4 } from 'uuid';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 interface ShareLink {
   id: string;
@@ -165,9 +166,12 @@ const ShareLinksPage = () => {
                   {/* Header row */}
                   <div className="flex items-start gap-3">
                     {link.imageUrl ? (
-                      <img
+                      <Image
                         src={link.imageUrl}
                         alt={link.name}
+                        width={40}
+                        height={40}
+                        unoptimized
                         className="w-10 h-10 rounded-lg object-cover shrink-0 border border-border/40"
                       />
                     ) : (

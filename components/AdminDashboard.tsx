@@ -13,7 +13,8 @@ import {
   MapPin, Trash2, Pencil, Globe, User, Link, Smartphone,
   Monitor, Maximize2, ExternalLink, Clock, RefreshCw,
   Calendar, Tag, ExternalLink as ViewIcon, Search,
-  ChevronLeft, ChevronRight, X,
+  ChevronLeft, ChevronRight, X, Satellite,
+  Battery, Cpu, HardDrive, Signal,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader,
@@ -26,7 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import AddressText from "./crumbs/AddressText";
-import { Location } from "./interfaces/location.interface";
+import { Location, LocationHistoryEntry } from "./interfaces/location.interface";
 import { momentAgo } from "@/lib/momentAgo";
 
 const Map = dynamic(() => import("./Map"), { ssr: false });
@@ -170,6 +171,7 @@ const AdminDashboard = () => {
               <TableHeader>
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground w-36">Created</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Source</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Nickname</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">IP</TableHead>
                   <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Coordinates</TableHead>
@@ -193,6 +195,19 @@ const AdminDashboard = () => {
                   >
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                       {timeLabel(location.createdAt)}
+                    </TableCell>
+                    <TableCell>
+                      {location.locationSource === "ip" ? (
+                        <Badge variant="outline" className="gap-1 text-xs border-orange-300 text-orange-600 dark:border-orange-700 dark:text-orange-400">
+                          <Globe className="h-3 w-3" /> IP
+                        </Badge>
+                      ) : location.locationSource === "gps" ? (
+                        <Badge variant="outline" className="gap-1 text-xs border-blue-300 text-blue-600 dark:border-blue-700 dark:text-blue-400">
+                          <Satellite className="h-3 w-3" /> GPS
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground/40 text-xs">—</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <span className="text-sm font-medium">
@@ -365,6 +380,155 @@ const AdminDashboard = () => {
                   <p className="text-xs text-muted-foreground break-all leading-relaxed">{selectedLocation.userAgent || "—"}</p>
                 </div>
               </div>
+
+              {/* IP geolocation enrichment */}
+              {selectedLocation.locationSource === "ip" && (
+                <div className="mt-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">IP Geolocation</p>
+                    <Badge variant="outline" className="gap-1 text-xs border-orange-300 text-orange-600">
+                      <Globe className="h-3 w-3" /> City-level · source: ipapi.co
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {[
+                      { label: "City", value: selectedLocation.ipCity },
+                      { label: "Region", value: selectedLocation.ipRegion },
+                      { label: "Country", value: selectedLocation.ipCountry },
+                      { label: "ISP / Org", value: selectedLocation.ipIsp },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-100 dark:border-orange-900 px-3 py-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-orange-500 mb-0.5">{label}</p>
+                        <p className="text-sm truncate">{value || "—"}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Device fingerprint */}
+              {(selectedLocation.batteryLevel != null ||
+                selectedLocation.networkType ||
+                selectedLocation.hardwareConcurrency != null ||
+                selectedLocation.platform) && (
+                <div className="mt-4">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">Device Fingerprint</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {selectedLocation.batteryLevel != null && (
+                      <div className="rounded-lg bg-muted/50 border border-border/40 px-3 py-2">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <Battery className="h-3 w-3 text-muted-foreground" />
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Battery</p>
+                        </div>
+                        <p className="text-sm font-medium">
+                          {selectedLocation.batteryLevel}%
+                          {selectedLocation.batteryCharging != null && (
+                            <span className="text-xs text-muted-foreground ml-1">
+                              {selectedLocation.batteryCharging ? "⚡ charging" : "on battery"}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    )}
+                    {selectedLocation.networkType && (
+                      <div className="rounded-lg bg-muted/50 border border-border/40 px-3 py-2">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <Signal className="h-3 w-3 text-muted-foreground" />
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Network</p>
+                        </div>
+                        <p className="text-sm font-medium">{selectedLocation.networkType}</p>
+                        {selectedLocation.networkDownlink != null && (
+                          <p className="text-xs text-muted-foreground">{selectedLocation.networkDownlink} Mbps · {selectedLocation.networkRtt}ms</p>
+                        )}
+                      </div>
+                    )}
+                    {selectedLocation.hardwareConcurrency != null && (
+                      <div className="rounded-lg bg-muted/50 border border-border/40 px-3 py-2">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <Cpu className="h-3 w-3 text-muted-foreground" />
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CPU Cores</p>
+                        </div>
+                        <p className="text-sm font-medium">{selectedLocation.hardwareConcurrency}</p>
+                      </div>
+                    )}
+                    {selectedLocation.deviceMemory != null && (
+                      <div className="rounded-lg bg-muted/50 border border-border/40 px-3 py-2">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <HardDrive className="h-3 w-3 text-muted-foreground" />
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">RAM</p>
+                        </div>
+                        <p className="text-sm font-medium">~{selectedLocation.deviceMemory} GB</p>
+                      </div>
+                    )}
+                    {selectedLocation.platform && (
+                      <div className="rounded-lg bg-muted/50 border border-border/40 px-3 py-2">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <Monitor className="h-3 w-3 text-muted-foreground" />
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Platform</p>
+                        </div>
+                        <p className="text-sm font-medium">{selectedLocation.platform}</p>
+                      </div>
+                    )}
+                    {selectedLocation.maxTouchPoints != null && (
+                      <div className="rounded-lg bg-muted/50 border border-border/40 px-3 py-2">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <Smartphone className="h-3 w-3 text-muted-foreground" />
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Touch Points</p>
+                        </div>
+                        <p className="text-sm font-medium">{selectedLocation.maxTouchPoints}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Movement History */}
+              {selectedLocation.history && selectedLocation.history.length > 0 && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Movement History</p>
+                    <Badge variant="secondary" className="text-xs tabular-nums">{selectedLocation.history.length} pings</Badge>
+                  </div>
+                  <div className="border border-border/40 rounded-lg overflow-hidden">
+                    <div className="max-h-48 overflow-y-auto px-4 py-2">
+                      <div className="relative">
+                        <div className="absolute left-[7px] top-2 bottom-2 w-px bg-border/60" />
+                        <div className="space-y-0">
+                          {[...selectedLocation.history].reverse().map((entry: LocationHistoryEntry, i) => (
+                            <div key={i} className="flex items-start gap-3 py-1.5">
+                              <div className={`mt-1 w-3 h-3 rounded-full border-2 shrink-0 z-10 ${
+                                entry.locationSource === "gps"
+                                  ? "bg-blue-500 border-blue-300"
+                                  : "bg-orange-400 border-orange-200"
+                              }`} />
+                              <div className="flex-1 min-w-0 flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <code className="text-xs text-muted-foreground">
+                                    {entry.latitude.toFixed(5)}, {entry.longitude.toFixed(5)}
+                                  </code>
+                                  {entry.accuracy != null && (
+                                    <span className="text-xs text-muted-foreground/50">±{Math.round(entry.accuracy)}m</span>
+                                  )}
+                                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                                    entry.locationSource === "gps"
+                                      ? "bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400"
+                                      : "bg-orange-50 text-orange-600 dark:bg-orange-950 dark:text-orange-400"
+                                  }`}>
+                                    {entry.locationSource === "gps" ? "GPS" : "IP"}
+                                  </span>
+                                </div>
+                                <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+                                  {momentAgo(entry.ts)}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="mt-5 rounded-lg overflow-hidden border border-border/40">
                 <Map

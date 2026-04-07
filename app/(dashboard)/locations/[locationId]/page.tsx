@@ -4,14 +4,15 @@ import { useEffect, useState } from "react";
 import { database } from "@/lib/firebase";
 import { ref, onValue } from "firebase/database";
 import { momentAgo } from "@/lib/momentAgo";
-import { Location } from "@/components/interfaces/location.interface";
+import { Location, LocationHistoryEntry } from "@/components/interfaces/location.interface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   ArrowLeft, Globe, MapPin, User, Link, Smartphone,
   Monitor, Maximize2, ExternalLink, Clock, RefreshCw,
-  Calendar, Tag, Wifi,
+  Calendar, Tag, Wifi, Satellite, Battery, Signal,
+  Cpu, HardDrive,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -117,6 +118,16 @@ export default function LocationPage({
                 {location.deviceType}
               </Badge>
             )}
+            {location.locationSource === "gps" && (
+              <Badge variant="outline" className="gap-1 text-xs border-blue-300 text-blue-600 shrink-0">
+                <Satellite className="h-3 w-3" /> GPS
+              </Badge>
+            )}
+            {location.locationSource === "ip" && (
+              <Badge variant="outline" className="gap-1 text-xs border-orange-300 text-orange-600 shrink-0">
+                <Globe className="h-3 w-3" /> IP · city-level
+              </Badge>
+            )}
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
             ID: <span className="font-mono text-xs">{locationId}</span>
@@ -178,6 +189,107 @@ export default function LocationPage({
           </Card>
         </div>
 
+        {/* IP Geolocation enrichment */}
+        {location.locationSource === "ip" && (
+          <Card className="border-orange-200 dark:border-orange-900">
+            <div className="px-5 py-3 border-b border-orange-100 dark:border-orange-900 flex items-center gap-2">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">IP Geolocation</p>
+              <Badge variant="outline" className="gap-1 text-xs border-orange-300 text-orange-600">
+                <Globe className="h-3 w-3" /> City-level · source: ipapi.co
+              </Badge>
+            </div>
+            <CardContent className="px-5 py-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: "City", value: location.ipCity },
+                  { label: "Region", value: location.ipRegion },
+                  { label: "Country", value: location.ipCountry },
+                  { label: "ISP / Org", value: location.ipIsp },
+                ].map(({ label, value }) => (
+                  <div key={label} className="rounded-lg bg-orange-50 dark:bg-orange-950/30 px-3 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-orange-500 mb-0.5">{label}</p>
+                    <p className="text-sm">{value || "—"}</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Device Fingerprint */}
+        {(location.batteryLevel != null || location.networkType ||
+          location.hardwareConcurrency != null || location.platform) && (
+          <Card className="border-border/60">
+            <div className="px-5 py-3 border-b border-border/40">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Device Fingerprint</p>
+            </div>
+            <CardContent className="px-5 py-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {location.batteryLevel != null && (
+                  <div className="rounded-lg bg-muted/50 border border-border/40 px-3 py-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Battery className="h-3.5 w-3.5 text-muted-foreground" />
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Battery</p>
+                    </div>
+                    <p className="text-sm font-medium">{location.batteryLevel}%</p>
+                    {location.batteryCharging != null && (
+                      <p className="text-xs text-muted-foreground">{location.batteryCharging ? "⚡ charging" : "on battery"}</p>
+                    )}
+                  </div>
+                )}
+                {location.networkType && (
+                  <div className="rounded-lg bg-muted/50 border border-border/40 px-3 py-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Signal className="h-3.5 w-3.5 text-muted-foreground" />
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Network</p>
+                    </div>
+                    <p className="text-sm font-medium">{location.networkType}</p>
+                    {location.networkDownlink != null && (
+                      <p className="text-xs text-muted-foreground">{location.networkDownlink} Mbps · {location.networkRtt}ms RTT</p>
+                    )}
+                  </div>
+                )}
+                {location.hardwareConcurrency != null && (
+                  <div className="rounded-lg bg-muted/50 border border-border/40 px-3 py-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Cpu className="h-3.5 w-3.5 text-muted-foreground" />
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CPU Cores</p>
+                    </div>
+                    <p className="text-sm font-medium">{location.hardwareConcurrency}</p>
+                  </div>
+                )}
+                {location.deviceMemory != null && (
+                  <div className="rounded-lg bg-muted/50 border border-border/40 px-3 py-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <HardDrive className="h-3.5 w-3.5 text-muted-foreground" />
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">RAM</p>
+                    </div>
+                    <p className="text-sm font-medium">~{location.deviceMemory} GB</p>
+                  </div>
+                )}
+                {location.platform && (
+                  <div className="rounded-lg bg-muted/50 border border-border/40 px-3 py-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Monitor className="h-3.5 w-3.5 text-muted-foreground" />
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Platform</p>
+                    </div>
+                    <p className="text-sm font-medium">{location.platform}</p>
+                  </div>
+                )}
+                {location.maxTouchPoints != null && (
+                  <div className="rounded-lg bg-muted/50 border border-border/40 px-3 py-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Smartphone className="h-3.5 w-3.5 text-muted-foreground" />
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Touch Points</p>
+                    </div>
+                    <p className="text-sm font-medium">{location.maxTouchPoints}</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* User Agent */}
         <Card className="border-border/60">
           <div className="px-5 py-3 border-b border-border/40">
@@ -189,6 +301,53 @@ export default function LocationPage({
             </p>
           </CardContent>
         </Card>
+
+        {/* Movement History */}
+        {location.history && location.history.length > 0 && (
+          <Card className="border-border/60">
+            <div className="px-5 py-3 border-b border-border/40 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Movement History</p>
+              <Badge variant="secondary" className="text-xs tabular-nums">{location.history.length} pings</Badge>
+            </div>
+            <CardContent className="px-5 py-3 max-h-64 overflow-y-auto">
+              <div className="relative">
+                {/* Timeline line */}
+                <div className="absolute left-[7px] top-2 bottom-2 w-px bg-border/60" />
+                <div className="space-y-0">
+                  {[...location.history].reverse().map((entry: LocationHistoryEntry, i) => (
+                    <div key={i} className="flex items-start gap-3 py-2">
+                      <div className={`mt-1 w-3.5 h-3.5 rounded-full border-2 shrink-0 z-10 ${
+                        entry.locationSource === "gps"
+                          ? "bg-blue-500 border-blue-300"
+                          : "bg-orange-400 border-orange-200"
+                      }`} />
+                      <div className="flex-1 min-w-0 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <code className="text-xs text-muted-foreground">
+                            {entry.latitude.toFixed(5)}, {entry.longitude.toFixed(5)}
+                          </code>
+                          {entry.accuracy != null && (
+                            <span className="text-xs text-muted-foreground/60">±{Math.round(entry.accuracy)}m</span>
+                          )}
+                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                            entry.locationSource === "gps"
+                              ? "bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400"
+                              : "bg-orange-50 text-orange-600 dark:bg-orange-950 dark:text-orange-400"
+                          }`}>
+                            {entry.locationSource === "gps" ? "GPS" : "IP"}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+                          {momentAgo(entry.ts)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Map */}
         <Card className="border-border/60 overflow-hidden">
