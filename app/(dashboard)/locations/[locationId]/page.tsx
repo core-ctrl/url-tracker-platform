@@ -2,142 +2,216 @@
 
 import { useEffect, useState } from "react";
 import { database } from "@/lib/firebase";
-import { ref } from "firebase/database";
-import { CardContent } from "@/components/ui/card";
-import { Card } from "@/components/ui/card";
+import { ref, onValue } from "firebase/database";
 import { momentAgo } from "@/lib/momentAgo";
-import { onValue } from "firebase/database";
-
-import { CardHeader } from "@/components/ui/card";
-import { CardTitle } from "@/components/ui/card";
-
-import dynamic from 'next/dynamic';
-
 import { Location } from "@/components/interfaces/location.interface";
-import { Monitor } from "lucide-react";
-import { User } from "lucide-react";
-import { Link } from "lucide-react";
-import { Smartphone } from "lucide-react";
-import { Maximize2 } from "lucide-react";
-import { ExternalLink } from "lucide-react";
-import { Clock } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  ArrowLeft, Globe, MapPin, User, Link, Smartphone,
+  Monitor, Maximize2, ExternalLink, Clock, RefreshCw,
+  Calendar, Tag, Wifi,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 
-
-
-interface InfoItemProps {
-    icon: React.ReactNode;
-    label: string;
-    value: string | number | undefined;
-}
-
-const InfoItem: React.FC<InfoItemProps> = ({ icon, label, value }) => (
-    <div className="flex items-start gap-2">
-        {icon}
-        <div>
-            <p className="font-medium">{label}</p>
-            <p className="text-muted-foreground">{value}</p>
-        </div>
-    </div>
-);
-
-import { MapPin, Globe, Calendar, RefreshCw, Tag } from "lucide-react";
-
-const Map = dynamic(() => import('@/components/Map'), {
-    ssr: false,
-    loading: () => <p>Loading...</p>,
+const Map = dynamic(() => import("@/components/Map"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[320px] bg-muted animate-pulse rounded-lg" />
+  ),
 });
 
+interface InfoRowProps {
+  icon: React.ReactNode;
+  label: string;
+  value?: string | number | null;
+  mono?: boolean;
+}
+
+const InfoRow = ({ icon, label, value, mono }: InfoRowProps) => (
+  <div className="flex items-start gap-3 py-3 border-b border-border/40 last:border-0">
+    <div className="text-muted-foreground mt-0.5 shrink-0">{icon}</div>
+    <div className="min-w-0 flex-1">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
+        {label}
+      </p>
+      {value ? (
+        <p className={`text-sm break-all ${mono ? "font-mono text-xs" : ""}`}>{value}</p>
+      ) : (
+        <p className="text-sm text-muted-foreground/40">—</p>
+      )}
+    </div>
+  </div>
+);
 
 export default function LocationPage({
-    params: { locationId }
+  params: { locationId },
 }: {
-    params: { locationId: string }
+  params: { locationId: string };
 }) {
+  const router = useRouter();
+  const [location, setLocation] = useState<Location | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-    const [location, setLocation] = useState<Location | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (locationId) {
-            const locationRef = ref(database, `locations/${locationId}`);
-            onValue(locationRef, (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    setLocation({ ...data, id: locationId });
-                    setLoading(false);
-                } else {
-                    setError(null);
-                    setLoading(false);
-                }
-            }, (error) => {
-                setError(error.message);
-                setLoading(false);
-            });
-        }
-    }, [locationId]);
-
-    if (loading) {
-        return <p>Loading...</p>;
-    }
-
-    if (error) {
-        return <p>Error: {error}</p>;
-    }
-
-    return (
-        <div className="flex w-full">
-            <Card className="mt-4 w-full shadow-lg hover:shadow-xl transition-shadow duration-300">
-                <CardHeader className="bg-gradient-to-r from-primary/10 to-secondary/10">
-                    <CardTitle className="flex items-center gap-2">
-                        <MapPin className="h-5 w-5 text-primary" />
-                        Location Details
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="p-6 w-full flex flex-col">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <InfoItem icon={<Globe className="h-4 w-4" />} label="IP" value={location?.ip || ''} />
-                                    <InfoItem icon={<MapPin className="h-4 w-4" />} label="Coordinates" value={`${location?.latitude?.toFixed(6)}, ${location?.longitude?.toFixed(6)}`} />
-                                    <InfoItem icon={<User className="h-4 w-4" />} label="User ID" value={location?.userId || ''} />
-                                    <InfoItem icon={<Link className="h-4 w-4" />} label="Share Link ID" value={location?.shareLinkId || ''} />
-                                    <InfoItem icon={<Smartphone className="h-4 w-4" />} label="Device ID" value={location?.deviceId || ''} />
-                                    <InfoItem icon={<Monitor className="h-4 w-4" />} label="Device Type" value={location?.deviceType || ''} />
-                                        <InfoItem icon={<Globe className="h-4 w-4" />} label="User Agent" value={location?.userAgent || ''} />
-                                </div>
-                                <div className="space-y-2">
-                                    <InfoItem icon={<Maximize2 className="h-4 w-4" />} label="Screen Size" value={`${location?.screenWidth}x${location?.screenHeight}`} />
-                                    <InfoItem icon={<ExternalLink className="h-4 w-4" />} label="Referrer" value={location?.referrer} />
-                                    <InfoItem icon={<Globe className="h-4 w-4" />} label="User Language" value={location?.userLanguage} />
-                                    <InfoItem icon={<Clock className="h-4 w-4" />} label="User Timezone" value={location?.userTimezone} />
-                                    <InfoItem icon={<RefreshCw className="h-4 w-4" />} label="Updated" value={momentAgo(location?.updatedAt || 0)} />
-                                    <InfoItem icon={<Calendar className="h-4 w-4" />} label="Created" value={momentAgo(location?.createdAt || 0)} />
-                                    <InfoItem icon={<Tag className="h-4 w-4" />} label="Nickname" value={location?.nickname || ''} />
-                        </div>
-                    </div>
-                    <div className="mt-6 flex flex-col w-full justify-start space-x-2">
-                        <div className="space-y-2">
-                            <div className="mt-6">
-                                <h3 className="text-lg font-semibold mb-2">Location on Map</h3>
-                            </div>
-                            {
-                                location && (
-                                    <Map 
-                                        userLocations={[{
-                                            id: location?.id,
-                                            latitude: location?.latitude,
-                                            longitude: location?.longitude,
-                                            userId: '1',
-                                        }]} 
-                                        center={[location?.latitude || 0, location?.longitude || 0]}
-                                        zoom={12}
-                                    />
-                                )
-                            }
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-        </div>
+  useEffect(() => {
+    if (!locationId) return;
+    const locationRef = ref(database, `locations/${locationId}`);
+    return onValue(
+      locationRef,
+      (snapshot) => {
+        const data = snapshot.val();
+        setLocation(data ? { ...data, id: locationId } : null);
+        setLoading(false);
+      },
+      (err) => {
+        setError(err.message);
+        setLoading(false);
+      }
     );
+  }, [locationId]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-4 p-6">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+
+  if (error || !location) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-12 text-center">
+        <MapPin className="h-10 w-10 text-muted-foreground/30 mb-4" />
+        <p className="text-sm font-medium">{error ? `Error: ${error}` : "Location not found."}</p>
+        <Button variant="ghost" size="sm" className="mt-4" onClick={() => router.back()}>
+          <ArrowLeft className="h-4 w-4 mr-1.5" /> Go back
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Page Header */}
+      <div className="flex items-center gap-4 px-6 py-5 border-b border-border/60">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={() => router.back()}
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl font-semibold tracking-tight truncate">
+              {location.nickname || location.ip || "Location Detail"}
+            </h1>
+            {location.deviceType && (
+              <Badge variant="secondary" className="text-xs shrink-0">
+                {location.deviceType}
+              </Badge>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            ID: <span className="font-mono text-xs">{locationId}</span>
+          </p>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-6 space-y-5">
+
+        {/* Stats row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: "IP Address", value: location.ip, icon: <Globe className="h-4 w-4 text-blue-500" /> },
+            { label: "Timezone", value: location.userTimezone, icon: <Clock className="h-4 w-4 text-violet-500" /> },
+            { label: "Language", value: location.userLanguage, icon: <Wifi className="h-4 w-4 text-orange-500" /> },
+            { label: "Screen", value: location.screenWidth ? `${location.screenWidth}×${location.screenHeight}` : undefined, icon: <Maximize2 className="h-4 w-4 text-green-500" /> },
+          ].map(({ label, value, icon }) => (
+            <Card key={label} className="border-border/60">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  {icon}
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+                </div>
+                <p className="text-sm font-medium truncate">{value || "—"}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Info grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className="border-border/60">
+            <div className="px-5 py-3 border-b border-border/40">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Network & Identity</p>
+            </div>
+            <CardContent className="px-5 py-1">
+              <InfoRow icon={<Globe className="h-3.5 w-3.5" />} label="IP Address" value={location.ip} mono />
+              <InfoRow icon={<MapPin className="h-3.5 w-3.5" />} label="Coordinates" value={`${location.latitude?.toFixed(6)}, ${location.longitude?.toFixed(6)}`} mono />
+              <InfoRow icon={<User className="h-3.5 w-3.5" />} label="User ID" value={location.userId} mono />
+              <InfoRow icon={<Link className="h-3.5 w-3.5" />} label="Share Link ID" value={location.shareLinkId} mono />
+              <InfoRow icon={<Tag className="h-3.5 w-3.5" />} label="Nickname" value={location.nickname} />
+              <InfoRow icon={<ExternalLink className="h-3.5 w-3.5" />} label="Referrer" value={location.referrer} />
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/60">
+            <div className="px-5 py-3 border-b border-border/40">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Device & Browser</p>
+            </div>
+            <CardContent className="px-5 py-1">
+              <InfoRow icon={<Smartphone className="h-3.5 w-3.5" />} label="Device ID" value={location.deviceId} mono />
+              <InfoRow icon={<Monitor className="h-3.5 w-3.5" />} label="Device Type" value={location.deviceType} />
+              <InfoRow icon={<Maximize2 className="h-3.5 w-3.5" />} label="Screen Size" value={location.screenWidth ? `${location.screenWidth}×${location.screenHeight}` : undefined} />
+              <InfoRow icon={<Globe className="h-3.5 w-3.5" />} label="Language" value={location.userLanguage} />
+              <InfoRow icon={<Clock className="h-3.5 w-3.5" />} label="Timezone" value={location.userTimezone} />
+              <InfoRow icon={<Calendar className="h-3.5 w-3.5" />} label="Created" value={momentAgo(location.createdAt ?? 0)} />
+              <InfoRow icon={<RefreshCw className="h-3.5 w-3.5" />} label="Updated" value={momentAgo(location.updatedAt ?? 0)} />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* User Agent */}
+        <Card className="border-border/60">
+          <div className="px-5 py-3 border-b border-border/40">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">User Agent</p>
+          </div>
+          <CardContent className="px-5 py-4">
+            <p className="text-xs font-mono text-muted-foreground break-all leading-relaxed">
+              {location.userAgent || "—"}
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Map */}
+        <Card className="border-border/60 overflow-hidden">
+          <div className="px-5 py-3 border-b border-border/40 flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Map</p>
+            <code className="text-xs text-muted-foreground">
+              {location.latitude?.toFixed(6)}, {location.longitude?.toFixed(6)}
+            </code>
+          </div>
+          <Map
+            userLocations={[{
+              id: location.id,
+              latitude: location.latitude,
+              longitude: location.longitude,
+              userId: "1",
+            }]}
+            center={[location.latitude ?? 0, location.longitude ?? 0]}
+            style={{ height: "320px", width: "100%" }}
+            zoom={12}
+          />
+        </Card>
+
+      </div>
+    </div>
+  );
 }

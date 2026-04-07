@@ -1,74 +1,96 @@
+'use client'
+
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from "@/components/ui/button";
-import { Menu, Home, Link as LinkIcon, MapPin } from 'lucide-react';
+import { Globe, Home, Link as LinkIcon, MapPin, MessageCircle, Menu } from 'lucide-react';
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
+
+const navItems = [
+  { href: '/', icon: Home, label: 'Overview', exact: true },
+  { href: '/locations', icon: MapPin, label: 'Locations', exact: false },
+  { href: '/share-links', icon: LinkIcon, label: 'Share Links', exact: false },
+  { href: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', exact: false },
+];
+
+const NavContent = ({ pathname }: { pathname: string }) => (
+  <div className="flex flex-col h-full">
+    {/* Brand */}
+    <div className="flex items-center gap-2.5 px-4 h-14 border-b border-border/60 shrink-0">
+      <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-primary shrink-0">
+        <Globe className="h-3.5 w-3.5 text-primary-foreground" />
+      </div>
+      <span className="font-bold text-sm tracking-tight">GoTrackerr</span>
+    </div>
+
+    {/* Navigation */}
+    <div className="flex-1 px-3 py-4 overflow-y-auto">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 px-3 mb-2">
+        Menu
+      </p>
+      <nav className="space-y-0.5">
+        {navItems.map(({ href, icon: Icon, label, exact }) => {
+          const isActive = exact ? pathname === href : pathname.startsWith(href);
+          return (
+            <Link key={href} href={href}>
+              <div className={cn(
+                "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer",
+                isActive
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              )}>
+                <Icon className="h-4 w-4 shrink-0" />
+                {label}
+              </div>
+            </Link>
+          );
+        })}
+      </nav>
+    </div>
+
+    {/* Footer */}
+    <div className="px-4 py-4 border-t border-border/60 shrink-0">
+      <div className="flex items-center gap-2">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+        </span>
+        <span className="text-xs text-muted-foreground">Live sync</span>
+      </div>
+    </div>
+  </div>
+);
 
 const Sidebar = () => {
   const pathname = usePathname();
 
-  const SidebarContent = () => (
-    <nav className="space-y-2">
-      <Link href="/">
-        <Button 
-          variant={pathname === '/' ? 'secondary' : 'ghost'} 
-          className="w-full justify-start text-primary hover:text-primary-dark transition-colors px-2"
-        >
-          <Home className="mr-2 h-4 w-4" />
-          Home
-        </Button>
-      </Link>
-      <Link href="/share-links">
-        <Button 
-          variant={pathname === '/share-links' ? 'secondary' : 'ghost'} 
-          className="w-full justify-start text-primary hover:text-primary-dark transition-colors px-2"
-        >
-          <LinkIcon className="mr-2 h-4 w-4" />
-          Manage Links
-        </Button>
-      </Link>
-      <Link href="/locations">
-        <Button 
-          variant={pathname === '/locations' ? 'secondary' : 'ghost'} 
-          className="w-full justify-start text-primary hover:text-primary-dark transition-colors px-2"
-        >
-          <MapPin className="mr-2 h-4 w-4" />
-          Locations
-        </Button>
-      </Link>
-    </nav>
-  );
-
   return (
     <>
-      {/* Desktop Sidebar */}
-      <div className="hidden md:block w-64 bg-background border-r h-screen p-4 shadow-lg">
-        <h2 className="text-2xl font-bold mb-6 text-primary">Dashboard</h2>
-        <SidebarContent />
+      {/* Desktop */}
+      <div className="hidden md:flex flex-col w-56 border-r border-border/60 bg-background h-screen shrink-0">
+        <NavContent pathname={pathname} />
       </div>
 
-      {/* Mobile Sidebar */}
-      <div className="md:hidden">
+      {/* Mobile */}
+      <div className="md:hidden fixed top-0 left-0 z-50">
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="outline" size="icon" className="fixed top-4 left-4 z-50 bg-primary text-white hover:bg-primary-dark">
+            <Button
+              variant="outline"
+              size="icon"
+              className="fixed top-3 left-3 z-50 h-8 w-8 shadow-sm"
+            >
               <Menu className="h-4 w-4" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-[250px] sm:w-[300px]">
-            <SheetHeader>
-              <SheetTitle className="text-2xl font-bold text-primary">Dashboard Menu</SheetTitle>
-            </SheetHeader>
-            <div className="mt-6">
-              <SidebarContent />
-            </div>
+          <SheetContent side="left" className="w-56 p-0">
+            <NavContent pathname={pathname} />
           </SheetContent>
         </Sheet>
       </div>

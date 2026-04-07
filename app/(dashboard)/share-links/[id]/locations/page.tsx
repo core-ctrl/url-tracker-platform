@@ -5,121 +5,175 @@ import { useRouter, useParams } from 'next/navigation';
 import { database } from '@/lib/firebase';
 import { ref, onValue, query, orderByChild, equalTo } from 'firebase/database';
 import { useToast } from '@/hooks/use-toast';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Table, TableBody, TableCell, TableHead,
+  TableHeader, TableRow,
+} from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { MapPin, Clock, Smartphone, Globe, Languages } from "lucide-react";
-
+import { Badge } from '@/components/ui/badge';
+import { Card } from '@/components/ui/card';
+import {
+  ArrowLeft, MapPin, Clock, Smartphone, Globe,
+  Languages, Monitor,
+} from 'lucide-react';
 import { Location } from '@/components/interfaces/location.interface';
-import { momentAgo } from "@/lib/momentAgo";
+import { momentAgo } from '@/lib/momentAgo';
 import { handleBrowserUserInfoToReadable } from '@/lib/utils';
 
 const LocationsPage = () => {
   const [locations, setLocations] = useState<Location[]>([]);
+  const [loading, setLoading] = useState(true);
   const { toast } = useToast();
   const router = useRouter();
   const params = useParams();
+  const linkId = params.id as string;
 
   useEffect(() => {
-    const shareLinkId = params.id as string;
-    if (!shareLinkId) return;
-
+    if (!linkId) return;
     const locationsRef = ref(database, 'locations');
-    const locationsQuery = query(locationsRef, orderByChild('shareLinkId'), equalTo(shareLinkId));
+    const q = query(locationsRef, orderByChild('shareLinkId'), equalTo(linkId));
 
-    const unsubscribe = onValue(locationsQuery, (snapshot) => {
-      const data = snapshot.val();
-      const locationsArray = data
-        ? Object.entries(data).map(([locId, loc]) => ({ ...loc as Location, id: locId }))
-        : [];
-      setLocations(locationsArray);
-    }, (error) => {
-      console.error("Error fetching locations:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load locations.",
-        variant: "destructive",
-      });
-    });
+    return onValue(
+      q,
+      (snapshot) => {
+        const data = snapshot.val();
+        setLocations(
+          data
+            ? Object.entries(data).map(([id, loc]) => ({ ...(loc as Location), id }))
+            : []
+        );
+        setLoading(false);
+      },
+      (error) => {
+        console.error(error);
+        toast({ title: "Error", description: "Failed to load locations.", variant: "destructive" });
+        setLoading(false);
+      }
+    );
+  }, [toast, linkId]);
 
-    // Cleanup subscription on unmount
-    return () => unsubscribe();
-  }, [toast, params.id]);
+  const deviceIcon = (type?: string) => {
+    if (!type) return <Monitor className="h-3.5 w-3.5" />;
+    return type.toLowerCase().includes('mobile')
+      ? <Smartphone className="h-3.5 w-3.5" />
+      : <Monitor className="h-3.5 w-3.5" />;
+  };
 
   return (
-    <div className="container mx-auto py-10">
-      <div className="flex flex-col items-center mb-8">
-        <h1 className="text-3xl font-extrabold mb-4 text-primary">
-          Location Insights
-        </h1>
-        <p className="text-lg text-muted-foreground">
-          Tracking data for share link: 
-          <a href={`/share-links`} className="font-semibold text-green-500">{params.id}</a>
-        </p>
+    <div className="flex flex-col h-full">
+      {/* Page Header */}
+      <div className="flex items-center gap-4 px-6 py-5 border-b border-border/60">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={() => router.back()}
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl font-semibold tracking-tight">Link Insights</h1>
+            {!loading && (
+              <Badge variant="secondary" className="text-xs tabular-nums">
+                {locations.length} pings
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5 font-mono">
+            {linkId}
+          </p>
+        </div>
       </div>
-      <Button onClick={() => router.back()} className="mb-4">
-        Back
-      </Button>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Location</TableHead>
-            <TableHead>Time</TableHead>
-            <TableHead>Device</TableHead>
-            <TableHead>Browser</TableHead>
-            <TableHead>Language</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {locations.map((location) => (
-            <TableRow key={location.id}>
-              <TableCell>{location.nickname || 'Anonymous'}</TableCell>
-              <TableCell>
-                <div className="flex items-center">
-                  <MapPin className="h-4 w-4 mr-2" />
-                  {location.latitude?.toFixed(4)}, {location.longitude?.toFixed(4)}
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center">
-                  <Clock className="h-4 w-4 mr-2" />
-                  {momentAgo(location.createdAt || 0)}
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center">
-                  <Smartphone className="h-4 w-4 mr-2" />
-                  {location.deviceType || 'Unknown'}
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center">
-                  <Globe className="h-4 w-4 mr-2" />
-                  {handleBrowserUserInfoToReadable(
-                    location.userAgent || 'Unknown'
-                  ).browser}, 
-                 {handleBrowserUserInfoToReadable(
-                    location.userAgent || 'Unknown'
-                  ).language}
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center">
-                  <Languages className="h-4 w-4 mr-2" />
-                  {location.userLanguage || 'Unknown'}
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-          {locations.length === 0 && (
-            <TableRow>
-              <TableCell colSpan={6} className="text-center">
-                No locations found.
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
+
+      <div className="flex-1 overflow-y-auto p-6">
+        {loading ? (
+          <div className="space-y-2">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="h-12 bg-muted animate-pulse rounded-lg" />
+            ))}
+          </div>
+        ) : locations.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-muted mb-4">
+              <MapPin className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <p className="text-sm font-medium mb-1">No pings yet</p>
+            <p className="text-sm text-muted-foreground">
+              Share your tracking link — location data will appear here once visited.
+            </p>
+          </div>
+        ) : (
+          <Card className="border-border/60 overflow-hidden">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Visitor</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Coordinates</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Time</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Device</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Browser</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Language</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Timezone</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {locations.map((location) => {
+                    const browser = handleBrowserUserInfoToReadable(location.userAgent || '');
+                    return (
+                      <TableRow key={location.id} className="hover:bg-muted/30">
+                        <TableCell>
+                          <div>
+                            <p className="text-sm font-medium">
+                              {location.nickname || <span className="text-muted-foreground/50 italic">Anonymous</span>}
+                            </p>
+                            {location.ip && (
+                              <p className="text-xs font-mono text-muted-foreground">{location.ip}</p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <code className="text-xs bg-muted px-1.5 py-0.5 rounded">
+                            {location.latitude?.toFixed(4)}, {location.longitude?.toFixed(4)}
+                          </code>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                            <Clock className="h-3.5 w-3.5 shrink-0" />
+                            {momentAgo(location.createdAt ?? 0)}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                            {deviceIcon(location.deviceType)}
+                            {location.deviceType || '—'}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                            <Globe className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate max-w-[100px]">{browser.browser || '—'}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                            <Languages className="h-3.5 w-3.5 shrink-0" />
+                            {location.userLanguage || '—'}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {location.userTimezone || '—'}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </Card>
+        )}
+      </div>
     </div>
   );
 };

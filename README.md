@@ -60,19 +60,10 @@ A versatile URL tracker platform with features like geolocation, IP address, dev
    npm install
    ```
 
-4. Set up your Firebase configuration:
-   - Create a new Firebase project
-   - Copy your Firebase configuration
-   - Create a `.env.local` file in the root directory
-   - Add your Firebase configuration to the `.env.local` file:
-     ```
-     NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
-     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_auth_domain
-     NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
-     NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_storage_bucket
-     NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
-     NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
-     ```
+4. Set up environment variables:
+   - Copy `.env.example` to `.env.local`
+   - Fill in Firebase and optional WhatsApp values from the Firebase console (Project settings) and [Meta WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api/)
+   - Required for the app: all `NEXT_PUBLIC_FIREBASE_*` variables including **`NEXT_PUBLIC_FIREBASE_DATABASE_URL`** (Realtime Database URL from Firebase console)
 
 5. Run the development server:
    ```
@@ -88,14 +79,23 @@ A versatile URL tracker platform with features like geolocation, IP address, dev
 3. Share the generated URL with your audience.
 4. Track visits, locations, and other data in real-time from the admin dashboard.
 
-## API Endpoints
+## How data flows
 
-- `/api/track`: Endpoint for tracking URL visits
-- `/api/shorten`: Endpoint for creating shortened URLs
-- `/api/analytics`: Endpoint for retrieving analytics data
+- **Visitor tracking**: Opening `/track?id=<shareLinkId>` (or a short link that redirects there) runs the track page in the browser, which writes to Firebase Realtime Database under `locations/{deviceId}`. There is no separate `/api/track` HTTP endpoint.
+- **Short links**: Short codes are stored under `shortUrls/{code}`. Visiting `/s/{code}` resolves the link server-side and redirects to `/track?id=…`. Unknown codes show the app **404** page.
+- **Dashboard**: Share links and live locations are read/written from the client using the Firebase SDK.
 
-For detailed API documentation, please refer to the [API Documentation](docs/api.md) file.
+## HTTP API
 
+| Method & path | Purpose |
+|---------------|---------|
+| `POST /api/whatsapp` | Sends a text via Meta WhatsApp Cloud API to `RECIPIENT_PHONE_NUMBER`. Requires JSON body `{ "message": "…" }`. If `WHATSAPP_API_SECRET` is set, send header `x-internal-key` with the same value. The in-app **WhatsApp** screen uses a **server action** instead, so it still works when the secret locks the HTTP route. |
+
+Configure `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, and `RECIPIENT_PHONE_NUMBER` (see `.env.example`).
+
+## Security
+
+Dashboard routes are not authentication-gated in this codebase; **you must configure [Firebase Realtime Database rules](docs/firebase-rules.md)** appropriately and plan **Firebase Auth** or **Admin SDK** for production. See `docs/firebase-rules.md` for guidance and a roadmap.
 
 ## Contributors
 
