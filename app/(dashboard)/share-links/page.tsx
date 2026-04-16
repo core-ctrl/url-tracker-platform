@@ -55,6 +55,18 @@ const ShareLinksPage = () => {
     });
   }, []);
 
+  useEffect(() => {
+    if (shareLinks.length === 0 || typeof window === 'undefined') return;
+    const editId = new URLSearchParams(window.location.search).get('edit');
+    if (!editId) return;
+    const link = shareLinks.find((l) => l.id === editId);
+    if (link) {
+      setCurrentLink(link);
+      setIsModalOpen(true);
+      router.replace('/share-links', { scroll: false });
+    }
+  }, [shareLinks, router]);
+
   const handleCreateShareLink = async (link: Omit<ShareLink, 'id' | 'url'>) => {
     try {
       const id = uuidv4();
