@@ -25,7 +25,8 @@ import {
 } from 'lucide-react';
 import { Location } from '@/components/interfaces/location.interface';
 import { ShareLink } from '@/components/interfaces/sharelink.interface';
-import { momentAgo } from '@/lib/momentAgo';
+import { momentAgo, eventTimeMsForSort } from '@/lib/momentAgo';
+import { useRelativeTimeTick } from '@/lib/use-relative-time-tick';
 import { handleBrowserUserInfoToReadable } from '@/lib/utils';
 import { getPublicOrigin } from '@/lib/site-url-client';
 
@@ -35,6 +36,16 @@ const LeafletMap = dynamic(() => import('@/components/Map'), {
     <div className="h-[280px] bg-muted animate-pulse rounded-lg border border-border/60" />
   ),
 });
+
+const MultiVisitorTrackMap = dynamic(
+  () => import('@/components/map/MultiVisitorTrackMap'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[320px] bg-muted animate-pulse rounded-lg border border-border/60" />
+    ),
+  }
+);
 
 const MAP_MAX_MARKERS = 50;
 
@@ -51,7 +62,10 @@ function historyLen(loc: Location): number {
 }
 
 function activityTs(loc: Location): number {
-  return loc.updatedAt ?? loc.createdAt ?? 0;
+  return Math.max(
+    eventTimeMsForSort(loc.updatedAt),
+    eventTimeMsForSort(loc.createdAt)
+  );
 }
 
 function topCountry(locs: Location[]): string | null {
@@ -79,7 +93,8 @@ function geoLine(loc: Location): string {
 
 function getTrackUrl(linkId: string): string {
   const origin = getPublicOrigin();
-  return `${origin}/track?id=${linkId}`;
+  if (origin) return `${origin}/track?id=${linkId}`;
+  return `/track?id=${linkId}`;
 }
 
 function truncate(str: string, max: number): string {
@@ -94,6 +109,7 @@ function escapeCsvCell(v: string | number | undefined | null): string {
 }
 
 const LocationsPage = () => {
+  useRelativeTimeTick();
   const [locations, setLocations] = useState<Location[]>([]);
   const [shareLinkMeta, setShareLinkMeta] = useState<ShareLink | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,6 +119,7 @@ const LocationsPage = () => {
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
   const [deleteTarget, setDeleteTarget] = useState<Location | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [mapMode, setMapMode] = useState<'pins' | 'trails'>('pins');
   const { toast } = useToast();
   const router = useRouter();
   const params = useParams();
@@ -144,10 +161,18 @@ const LocationsPage = () => {
     shareLinkMeta?.title?.trim() ||
     null;
 
-  const copyTrackUrl = useCallback(() => {
+  const copyTrackUrl = useCallback(async () => {
     const url = getTrackUrl(linkId);
-    navigator.clipboard.writeText(url);
-    toast({ title: 'Track URL copied', duration: 2000 });
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: 'Track URL copied', duration: 2000 });
+    } catch {
+      toast({
+        title: 'Could not copy',
+        description: 'Allow clipboard access or copy the track URL manually.',
+        variant: 'destructive',
+      });
+    }
   }, [linkId, toast]);
 
   const filteredSorted = useMemo(() => {
@@ -174,6 +199,8 @@ const LocationsPage = () => {
           (l.id || '').toLowerCase().includes(q) ||
           (l.deviceId || '').toLowerCase().includes(q) ||
           (l.ipCountry || '').toLowerCase().includes(q) ||
+          (l.ipCity || '').toLowerCase().includes(q) ||
+          (l.ipRegion || '').toLowerCase().includes(q) ||
           (l.referrer || '').toLowerCase().includes(q) ||
           ua.includes(q) ||
           browserStr.includes(q)
@@ -241,6 +268,14 @@ const LocationsPage = () => {
   const mapZoom = mapLocations.length <= 1 ? 12 : mapLocations.length <= 5 ? 8 : 4;
 
   const exportCsv = useCallback(() => {
+    if (filteredSorted.length === 0) {
+      toast({
+        title: 'Nothing to export',
+        description: 'Adjust filters or wait for visitors with matching rows.',
+        variant: 'destructive',
+      });
+      return;
+    }
     const headers = [
       'id',
       'createdAt',
@@ -478,7 +513,13 @@ const LocationsPage = () => {
                     <option value="newest">Newest first</option>
                     <option value="oldest">Oldest first</option>
                   </select>
-                  <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={exportCsv}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 gap-1.5"
+                    disabled={filteredSorted.length === 0}
+                    onClick={exportCsv}
+                  >
                     <Download className="h-3.5 w-3.5" />
                     Export CSV
                   </Button>
@@ -519,23 +560,70 @@ const LocationsPage = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
               {mapLocations.length > 0 && (
-                <Card className="border-border/60 overflow-hidden lg:col-span-2">
+                <Card className="border-border/60 lg:col-span-2">
                   <div className="px-4 py-3 border-b border-border/40 flex items-center justify-between gap-2">
                     <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                       Map
                     </p>
-                    {mapTruncated && (
-                      <Badge variant="outline" className="text-[10px] font-normal">
-                        Showing {MAP_MAX_MARKERS} of {mapLocationsAllCoords.length} on map
-                      </Badge>
+                    <div className="flex items-center gap-2">
+                      <div className="inline-flex rounded-md border bg-muted/40 p-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setMapMode('pins')}
+                          className={`px-2 py-0.5 text-[11px] rounded ${
+                            mapMode === 'pins'
+                              ? 'bg-background shadow-sm font-medium'
+                              : 'text-muted-foreground'
+                          }`}
+                          aria-pressed={mapMode === 'pins'}
+                        >
+                          Pins
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMapMode('trails')}
+                          className={`px-2 py-0.5 text-[11px] rounded ${
+                            mapMode === 'trails'
+                              ? 'bg-background shadow-sm font-medium'
+                              : 'text-muted-foreground'
+                          }`}
+                          aria-pressed={mapMode === 'trails'}
+                        >
+                          Trails
+                        </button>
+                      </div>
+                      {mapTruncated && (
+                        <Badge variant="outline" className="text-[10px] font-normal">
+                          Showing {MAP_MAX_MARKERS} of {mapLocationsAllCoords.length}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <div className="p-3">
+                    {mapMode === 'pins' ? (
+                      mapLocations.length === 1 ? (
+                        <LeafletMap
+                          userLocations={mapLocations[0]}
+                          center={mapCenter}
+                          zoom={mapZoom}
+                          style={{ height: '320px', width: '100%' }}
+                          trackHeight={320}
+                        />
+                      ) : (
+                        <LeafletMap
+                          userLocations={mapLocations}
+                          center={mapCenter}
+                          zoom={mapZoom}
+                          style={{ height: '320px', width: '100%' }}
+                        />
+                      )
+                    ) : (
+                      <MultiVisitorTrackMap
+                        locations={mapLocations}
+                        height={320}
+                      />
                     )}
                   </div>
-                  <LeafletMap
-                    userLocations={mapLocations}
-                    center={mapCenter}
-                    zoom={mapZoom}
-                    style={{ height: '280px', width: '100%' }}
-                  />
                 </Card>
               )}
               {!filteredEmpty && (
@@ -590,8 +678,15 @@ const LocationsPage = () => {
                           return (
                             <TableRow
                               key={location.id}
-                              className="hover:bg-muted/30 cursor-pointer"
+                              tabIndex={0}
+                              className="hover:bg-muted/30 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                               onClick={() => router.push(`/locations/${location.id}`)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  router.push(`/locations/${location.id}`);
+                                }
+                              }}
                             >
                               <TableCell>
                                 <div>
@@ -727,9 +822,9 @@ const LocationsPage = () => {
             <DialogTitle>Remove this visitor?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            This deletes stored location data for device{' '}
-            <span className="font-mono text-xs">{deleteTarget?.id}</span>. Open RTDB rules may allow
-            anyone with the dashboard URL to do this; lock down in production.
+            This permanently removes stored location data for device{' '}
+            <span className="font-mono text-xs">{deleteTarget?.id}</span>. Ensure your Realtime Database
+            rules match who should be allowed to delete records.
           </p>
           <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>

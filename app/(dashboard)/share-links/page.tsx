@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,10 +38,12 @@ interface ShareLink {
 
 const ShareLinksPage = () => {
   const [shareLinks, setShareLinks] = useState<ShareLink[]>([]);
+  const [shareLinksReady, setShareLinksReady] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentLink, setCurrentLink] = useState<Partial<ShareLink> | null>(null);
   const { toast } = useToast();
   const router = useRouter();
+  const consumedEditRef = useRef<string | null>(null);
 
   useEffect(() => {
     const shareLinksRef = ref(database, 'shareLinks');
@@ -52,20 +54,33 @@ const ShareLinksPage = () => {
           ? Object.entries(data).map(([id, link]) => ({ ...(link as ShareLink), id }))
           : []
       );
+      setShareLinksReady(true);
     });
   }, []);
 
   useEffect(() => {
-    if (shareLinks.length === 0 || typeof window === 'undefined') return;
+    if (!shareLinksReady || typeof window === 'undefined') return;
     const editId = new URLSearchParams(window.location.search).get('edit');
-    if (!editId) return;
+    if (!editId) {
+      consumedEditRef.current = null;
+      return;
+    }
+    if (consumedEditRef.current === editId) return;
+    consumedEditRef.current = editId;
+
     const link = shareLinks.find((l) => l.id === editId);
+    router.replace('/share-links', { scroll: false });
     if (link) {
       setCurrentLink(link);
       setIsModalOpen(true);
-      router.replace('/share-links', { scroll: false });
+    } else {
+      toast({
+        title: 'Link not found',
+        description: 'No share link matches that ID.',
+        variant: 'destructive',
+      });
     }
-  }, [shareLinks, router]);
+  }, [shareLinksReady, shareLinks, router, toast]);
 
   const handleCreateShareLink = async (link: Omit<ShareLink, 'id' | 'url'>) => {
     try {

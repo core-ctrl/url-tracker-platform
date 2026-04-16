@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { database } from "@/lib/firebase";
-import { ref, get, runTransaction } from "firebase/database";
+import { ref, get, runTransaction, serverTimestamp } from "firebase/database";
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import axios from "axios";
@@ -156,6 +156,33 @@ export default function TrackClient() {
     const deviceId = localStorage.getItem("deviceId") || crypto.randomUUID();
     localStorage.setItem("deviceId", deviceId);
 
+    /**
+     * Web apps cannot track in the background. These thresholds tune how we
+     * surface that constraint in the data so the consumer UI renders honestly.
+     */
+    const GAP_BREAK_MS = 30_000; // gap marker added to next history entry when > this
+    const HEARTBEAT_INTERVAL_MS = 60_000; // liveness ping cadence while visible
+    const HEARTBEAT_STALE_MS = 45_000; // skip heartbeat if a real GPS ping just landed
+
+    type TrackerState = {
+      lastKnown: {
+        latitude: number;
+        longitude: number;
+        locationSource: "gps" | "ip";
+        accuracy: number | null;
+      } | null;
+      hiddenAt: number;
+      lastPingAt: number;
+      pendingGapMs: number;
+    };
+
+    const state: TrackerState = {
+      lastKnown: null,
+      hiddenAt: 0,
+      lastPingAt: 0,
+      pendingGapMs: 0,
+    };
+
     /** Shared fields that don't depend on lat/lng */
     const baseData = () => ({
       nickname: "",
@@ -170,11 +197,17 @@ export default function TrackClient() {
       referrer: document.referrer,
       userLanguage: navigator.language,
       userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      updatedAt: Date.now(),
     });
 
-    /** Atomic merge + history append so concurrent GPS updates do not drop pings */
-    const persist = async (data: Partial<Location>, historyEntry: LocationHistoryEntry) => {
+    /**
+     * Atomic merge + history append so concurrent GPS updates do not drop pings.
+     * When `historyEntry` is null, writes a top-level-only patch (e.g. heartbeats,
+     * visibility markers) without polluting the movement history.
+     */
+    const persist = async (
+      data: Partial<Location>,
+      historyEntry: Omit<LocationHistoryEntry, "ts"> | null
+    ) => {
       const locRef = ref(database, `locations/${deviceId}`);
       await runTransaction(locRef, (current) => {
         const cur =
@@ -188,21 +221,57 @@ export default function TrackClient() {
           : rawHistory && typeof rawHistory === "object"
             ? (Object.values(rawHistory) as LocationHistoryEntry[])
             : [];
-        const history = [...prevHistory, historyEntry].slice(-200);
-        const createdAt = base.createdAt ?? Date.now();
+        const history = historyEntry
+          ? [
+              ...prevHistory,
+              { ...historyEntry, ts: serverTimestamp() },
+            ].slice(-200)
+          : prevHistory;
+        const createdAt =
+          base.createdAt != null && typeof base.createdAt === "number"
+            ? base.createdAt
+            : serverTimestamp();
         const merged = stripUndefined({
           ...base,
           ...data,
           history,
           createdAt,
-          updatedAt: Date.now(),
-        } as Record<string, unknown>) as Partial<Location> & {
-          history: LocationHistoryEntry[];
-          createdAt: number;
-          updatedAt: number;
-        };
+          updatedAt: serverTimestamp(),
+        } as Record<string, unknown>);
         return merged;
       });
+    };
+
+    /**
+     * Best-effort PATCH via Firebase REST using `fetch({ keepalive: true })`.
+     * The browser allows this request to outlive the page when fired from
+     * `pagehide` / `visibilitychange: hidden`, which the Firebase JS SDK cannot.
+     */
+    const sendKeepalive = (payload: Record<string, unknown>) => {
+      const dbUrl = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
+      if (!dbUrl) return;
+      try {
+        const url = `${dbUrl.replace(/\/$/, "")}/locations/${encodeURIComponent(
+          deviceId
+        )}.json`;
+        void fetch(url, {
+          method: "PATCH",
+          keepalive: true,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }).catch(() => {});
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const consumePendingGap = (): number | null => {
+      if (state.pendingGapMs > 0) {
+        const g = state.pendingGapMs;
+        state.pendingGapMs = 0;
+        return g;
+      }
+      return null;
     };
 
     /** --- GPS path --- */
@@ -218,12 +287,34 @@ export default function TrackClient() {
         }
 
         const fp = await collectFingerprint();
+        const gap = consumePendingGap();
 
         await persist(
-          { ...baseData(), latitude, longitude, locationSource: "gps", ...fp },
-          { latitude, longitude, accuracy: accuracy ?? null, locationSource: "gps", ts: Date.now() }
+          {
+            ...baseData(),
+            latitude,
+            longitude,
+            locationSource: "gps",
+            sessionState: "active",
+            foregroundedAt: serverTimestamp() as unknown as number,
+            ...fp,
+          },
+          {
+            latitude,
+            longitude,
+            accuracy: accuracy ?? null,
+            locationSource: "gps",
+            gapBeforeMs: gap,
+          }
         );
 
+        state.lastKnown = {
+          latitude,
+          longitude,
+          locationSource: "gps",
+          accuracy: accuracy ?? null,
+        };
+        state.lastPingAt = Date.now();
         setUserLocation({ latitude, longitude });
       } catch { /* silent */ }
     };
@@ -242,6 +333,7 @@ export default function TrackClient() {
         if (!geo) return;
 
         const fp = await collectFingerprint();
+        const gap = consumePendingGap();
 
         await persist(
           {
@@ -250,6 +342,8 @@ export default function TrackClient() {
             latitude: geo.latitude,
             longitude: geo.longitude,
             locationSource: "ip",
+            sessionState: "active",
+            foregroundedAt: serverTimestamp() as unknown as number,
             ipCity: geo.city,
             ipRegion: geo.region,
             ipCountry: geo.country,
@@ -257,17 +351,128 @@ export default function TrackClient() {
             ipAccuracy: "city-level",
             ...fp,
           },
-          { latitude: geo.latitude, longitude: geo.longitude, accuracy: null, locationSource: "ip", ts: Date.now() }
+          {
+            latitude: geo.latitude,
+            longitude: geo.longitude,
+            accuracy: null,
+            locationSource: "ip",
+            gapBeforeMs: gap,
+          }
         );
 
+        state.lastKnown = {
+          latitude: geo.latitude,
+          longitude: geo.longitude,
+          locationSource: "ip",
+          accuracy: null,
+        };
+        state.lastPingAt = Date.now();
         setUserLocation({ latitude: geo.latitude, longitude: geo.longitude });
       } catch { /* silent */ }
     };
 
+    // ---------------- Background-tracking resilience ----------------
+
+    /** Screen Wake Lock — reduces iOS/Android tab suspension while the screen is on. */
+    let wakeLock: { release: () => Promise<void> } | null = null;
+    const requestWakeLock = async () => {
+      try {
+        const nav = navigator as unknown as {
+          wakeLock?: { request: (type: "screen") => Promise<{ release: () => Promise<void> }> };
+        };
+        if (!nav.wakeLock || wakeLock) return;
+        wakeLock = await nav.wakeLock.request("screen");
+      } catch {
+        /* user gesture / permission denial — ignore */
+      }
+    };
+    const releaseWakeLock = () => {
+      const wl = wakeLock;
+      wakeLock = null;
+      if (wl) {
+        void wl.release().catch(() => {});
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        state.hiddenAt = Date.now();
+        // Best-effort pause marker via REST keepalive (survives tab suspension).
+        sendKeepalive({
+          backgroundedAt: { ".sv": "timestamp" },
+          updatedAt: { ".sv": "timestamp" },
+          sessionState: "hidden",
+        });
+        // Best-effort pause marker via SDK too (may or may not land before suspension).
+        void persist(
+          { sessionState: "hidden", backgroundedAt: serverTimestamp() as unknown as number },
+          state.lastKnown
+            ? {
+                latitude: state.lastKnown.latitude,
+                longitude: state.lastKnown.longitude,
+                accuracy: state.lastKnown.accuracy,
+                locationSource: state.lastKnown.locationSource,
+                paused: true,
+              }
+            : null
+        ).catch(() => {});
+        releaseWakeLock();
+      } else {
+        const gap = state.hiddenAt > 0 ? Date.now() - state.hiddenAt : 0;
+        state.hiddenAt = 0;
+        if (gap > GAP_BREAK_MS) state.pendingGapMs = gap;
+        // Trigger an immediate fresh fix so the map shows the resume point fast.
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            onGpsSuccess,
+            onGpsError,
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 }
+          );
+        }
+        void requestWakeLock();
+      }
+    };
+
+    const onPageHide = () => {
+      // Last-chance write. SDK writes may not flush, so lean on fetch-keepalive.
+      sendKeepalive({
+        backgroundedAt: { ".sv": "timestamp" },
+        updatedAt: { ".sv": "timestamp" },
+        sessionState: "ended",
+      });
+      releaseWakeLock();
+    };
+
+    /**
+     * Liveness heartbeat: while visible, if no GPS ping has landed recently,
+     * refresh `updatedAt` / `lastHeartbeatAt` at top level so the consumer UI
+     * "live" badge stays accurate even when the user is stationary.
+     */
+    const heartbeatId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - state.lastPingAt < HEARTBEAT_STALE_MS) return;
+      void persist(
+        {
+          sessionState: "active",
+          lastHeartbeatAt: serverTimestamp() as unknown as number,
+        },
+        null
+      ).catch(() => {});
+    }, HEARTBEAT_INTERVAL_MS);
+
     if (!navigator.geolocation) {
-      // No geolocation API at all — go straight to IP fallback
+      // No geolocation API at all — go straight to IP fallback.
       onGpsError();
-      return;
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      window.addEventListener("pagehide", onPageHide);
+      void requestWakeLock();
+      return () => {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+        window.removeEventListener("pagehide", onPageHide);
+        window.clearInterval(heartbeatId);
+        releaseWakeLock();
+      };
     }
 
     const watchId = navigator.geolocation.watchPosition(
@@ -276,7 +481,17 @@ export default function TrackClient() {
       { enableHighAccuracy: true, maximumAge: 10_000, timeout: 30_000 }
     );
 
-    return () => navigator.geolocation.clearWatch(watchId);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", onPageHide);
+    void requestWakeLock();
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
+      window.clearInterval(heartbeatId);
+      releaseWakeLock();
+    };
   }, [shareLinkId]);
 
   const locale = normalizeTrackLocale(shareLink?.locale ?? undefined);

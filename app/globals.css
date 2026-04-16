@@ -72,3 +72,103 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Leaflet visitor-track divIcons */
+.leaflet-div-icon.track-marker-start,
+.leaflet-div-icon.track-marker-live,
+.leaflet-div-icon.track-marker-scrub,
+.leaflet-div-icon.track-chevron {
+  background: transparent !important;
+  border: none !important;
+}
+
+@keyframes track-live-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgba(37, 99, 235, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+}
+
+@keyframes track-idle-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.45); }
+  70% { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+
+@keyframes track-paused-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(139, 92, 246, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+}
+
+.track-live-dot {
+  animation: track-live-pulse 2.2s ease-out infinite;
+}
+.track-live-dot--idle {
+  animation: track-idle-pulse 2.8s ease-out infinite;
+}
+.track-live-dot--stale {
+  animation: none;
+  opacity: 0.85;
+}
+.track-live-dot--paused {
+  animation: track-paused-pulse 3.2s ease-out infinite;
+}
+
+/* Direction chevron markers along a trail. */
+.track-chevron .track-chevron__inner {
+  font-size: 14px;
+  line-height: 14px;
+  color: #1d4ed8;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.9);
+  transform-origin: 50% 50%;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Status pill used by TrackMetricsStrip. */
+.track-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+.track-status-badge .track-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: currentColor;
+  display: inline-block;
+}
+.track-status-badge--live {
+  border-color: rgba(37, 99, 235, 0.5);
+  color: #1d4ed8;
+}
+.track-status-badge--live .track-status-dot {
+  animation: track-live-pulse 2.2s ease-out infinite;
+}
+.track-status-badge--idle {
+  border-color: rgba(245, 158, 11, 0.6);
+  color: #b45309;
+}
+.track-status-badge--stale {
+  border-color: rgba(100, 116, 139, 0.5);
+  color: #475569;
+}
+.track-status-badge--paused {
+  border-color: rgba(139, 92, 246, 0.6);
+  color: #6d28d9;
+}
+.track-status-badge--paused .track-status-dot {
+  animation: track-paused-pulse 3.2s ease-out infinite;
+}
+
+/* Follow button active emphasis. */
+.track-follow-active {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}

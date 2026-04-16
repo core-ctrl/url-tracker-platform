@@ -15,16 +15,14 @@ import { ref, onValue } from "firebase/database";
 import { Location } from "@/components/interfaces/location.interface";
 import dynamic from 'next/dynamic';
 import { SiteBrandName } from "@/components/SiteBrandName";
+import { momentAgo, eventTimeMsForSort } from "@/lib/momentAgo";
+import { normalizeEventMs } from "@/lib/timestamp-ms";
+import { useRelativeTimeTick } from "@/lib/use-relative-time-tick";
 
 const Map = dynamic(() => import('@/components/Map'), { ssr: false });
 
-function timeAgo(ts?: number): string {
-  if (!ts) return '—';
-  const diff = Math.floor((Date.now() - ts) / 1000);
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
+function locRecencyMs(loc: Location): number {
+  return Math.max(eventTimeMsForSort(loc.updatedAt), eventTimeMsForSort(loc.createdAt));
 }
 
 interface StatCardProps {
@@ -55,17 +53,20 @@ function StatCard({ label, value, icon, accent, sub }: StatCardProps) {
 }
 
 export default function Home() {
+  useRelativeTimeTick();
   const [totalLocations, setTotalLocations] = useState(0);
   const [activeShareLinks, setActiveShareLinks] = useState(0);
   const [totalUsers, setTotalUsers] = useState(0);
   const [userLocations, setUserLocations] = useState<Location[]>([]);
 
-  const recentLocations = userLocations
-    .filter(l => l.createdAt && l.createdAt > Date.now() - 86_400_000)
-    .length;
+  const dayAgo = Date.now() - 86_400_000;
+  const recentLocations = userLocations.filter((l) => {
+    const ms = normalizeEventMs(l.updatedAt ?? l.createdAt);
+    return ms != null && ms > dayAgo;
+  }).length;
 
   const recentFeed = [...userLocations]
-    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+    .sort((a, b) => locRecencyMs(b) - locRecencyMs(a))
     .slice(0, 8);
 
   useEffect(() => {
@@ -235,7 +236,7 @@ export default function Home() {
                     </div>
                     <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
                       <Clock className="h-3 w-3" />
-                      {timeAgo(loc.createdAt)}
+                      {momentAgo(loc.updatedAt ?? loc.createdAt)}
                     </div>
                   </div>
                 ))

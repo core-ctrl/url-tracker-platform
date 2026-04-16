@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { database } from "@/lib/firebase";
 import { ref, onValue } from "firebase/database";
 import { momentAgo } from "@/lib/momentAgo";
+import { useRelativeTimeTick } from "@/lib/use-relative-time-tick";
 import { Location, LocationHistoryEntry } from "@/components/interfaces/location.interface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,12 +18,15 @@ import {
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 
-const Map = dynamic(() => import("@/components/Map"), {
-  ssr: false,
-  loading: () => (
-    <div className="h-[320px] bg-muted animate-pulse rounded-lg" />
-  ),
-});
+const VisitorTrackMap = dynamic(
+  () => import("@/components/map/VisitorTrackMap"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[360px] bg-muted animate-pulse rounded-lg" />
+    ),
+  }
+);
 
 interface InfoRowProps {
   icon: React.ReactNode;
@@ -52,6 +56,7 @@ export default function LocationPage({
 }: {
   params: { locationId: string };
 }) {
+  useRelativeTimeTick();
   const router = useRouter();
   const [location, setLocation] = useState<Location | null>(null);
   const [loading, setLoading] = useState(true);
@@ -350,24 +355,21 @@ export default function LocationPage({
         )}
 
         {/* Map */}
-        <Card className="border-border/60 overflow-hidden">
-          <div className="px-5 py-3 border-b border-border/40 flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Map</p>
-            <code className="text-xs text-muted-foreground">
+        <Card className="border-border/60">
+          <div className="px-5 py-3 border-b border-border/40 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Movement map</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Green <span className="font-medium text-emerald-700">S</span> = start · Time-gradient line = path (oldest blue → newest green) · Dashed = IP · Pulse = live position
+              </p>
+            </div>
+            <code className="text-xs text-muted-foreground shrink-0">
               {location.latitude?.toFixed(6)}, {location.longitude?.toFixed(6)}
             </code>
           </div>
-          <Map
-            userLocations={[{
-              id: location.id,
-              latitude: location.latitude,
-              longitude: location.longitude,
-              userId: "1",
-            }]}
-            center={[location.latitude ?? 0, location.longitude ?? 0]}
-            style={{ height: "320px", width: "100%" }}
-            zoom={12}
-          />
+          <div className="p-4">
+            <VisitorTrackMap location={location} height={380} />
+          </div>
         </Card>
 
       </div>

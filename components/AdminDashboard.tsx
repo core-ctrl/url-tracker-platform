@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { database } from "../lib/firebase";
-import { ref, onValue, remove, update } from "firebase/database";
+import { ref, onValue, remove, update, serverTimestamp } from "firebase/database";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead,
@@ -28,9 +28,10 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import AddressText from "./crumbs/AddressText";
 import { Location, LocationHistoryEntry } from "./interfaces/location.interface";
-import { momentAgo } from "@/lib/momentAgo";
+import { momentAgo, eventTimeMsForSort } from "@/lib/momentAgo";
+import { useRelativeTimeTick } from "@/lib/use-relative-time-tick";
 
-const Map = dynamic(() => import("./Map"), { ssr: false });
+const VisitorTrackMap = dynamic(() => import("./map/VisitorTrackMap"), { ssr: false });
 
 const PER_PAGE = 15;
 
@@ -55,6 +56,7 @@ const InfoRow = ({ icon, label, value }: InfoRowProps) => (
 );
 
 const AdminDashboard = () => {
+  useRelativeTimeTick();
   const [locations, setLocations] = useState<Location[]>([]);
   const [filtered, setFiltered] = useState<Location[]>([]);
   const [search, setSearch] = useState("");
@@ -73,8 +75,17 @@ const AdminDashboard = () => {
       const arr = data
         ? Object.entries(data)
             .map(([id, loc]) => ({ ...(loc as Location), id }))
-            .filter((l) => l.createdAt)
-            .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+            .filter(
+              (l) =>
+                l.createdAt != null ||
+                l.updatedAt != null ||
+                (typeof l.latitude === "number" && typeof l.longitude === "number")
+            )
+            .sort(
+              (a, b) =>
+                Math.max(eventTimeMsForSort(b.updatedAt), eventTimeMsForSort(b.createdAt)) -
+                Math.max(eventTimeMsForSort(a.updatedAt), eventTimeMsForSort(a.createdAt))
+            )
         : [];
       setLocations(arr);
       setFiltered(arr);
@@ -117,9 +128,9 @@ const AdminDashboard = () => {
     try {
       const lat = editedLocation.latitude;
       const lng = editedLocation.longitude;
-      const payload: Record<string, string | number> = {
+      const payload: Record<string, string | number | ReturnType<typeof serverTimestamp>> = {
         nickname: editedLocation.nickname ?? "",
-        updatedAt: Date.now(),
+        updatedAt: serverTimestamp(),
       };
       if (editedLocation.ip != null && editedLocation.ip !== "") {
         payload.ip = editedLocation.ip;
@@ -134,7 +145,15 @@ const AdminDashboard = () => {
       setIsEditOpen(false);
       toast({ title: "Location updated" });
       if (selectedLocation?.id === editedLocation.id) {
-        setSelectedLocation({ ...selectedLocation, ...payload });
+        setSelectedLocation({
+          ...selectedLocation,
+          nickname: editedLocation.nickname ?? "",
+          ...(typeof lat === "number" && Number.isFinite(lat) ? { latitude: lat } : {}),
+          ...(typeof lng === "number" && Number.isFinite(lng) ? { longitude: lng } : {}),
+          ...(editedLocation.ip != null && editedLocation.ip !== ""
+            ? { ip: editedLocation.ip }
+            : {}),
+        });
       }
     } catch {
       toast({ title: "Error", description: "Failed to update location.", variant: "destructive" });
@@ -542,18 +561,11 @@ const AdminDashboard = () => {
                 </div>
               )}
 
-              <div className="mt-5 rounded-lg overflow-hidden border border-border/40">
-                <Map
-                  userLocations={[{
-                    id: selectedLocation.id,
-                    latitude: selectedLocation.latitude,
-                    longitude: selectedLocation.longitude,
-                    userId: "1",
-                  }]}
-                  center={[selectedLocation.latitude ?? 0, selectedLocation.longitude ?? 0]}
-                  style={{ height: "260px", width: "100%" }}
-                  zoom={14}
-                />
+              <div className="mt-5 rounded-lg border border-border/40 p-3">
+                <p className="text-[11px] text-muted-foreground pb-2">
+                  Trail: start (S) → time-gradient path (old blue → new green), dashed = IP. Live marker updates from Firebase.
+                </p>
+                <VisitorTrackMap location={selectedLocation} height={320} />
               </div>
             </CardContent>
           </Card>
