@@ -24,7 +24,7 @@ import {
 const Map = dynamic(() => import("@/components/Map"), { ssr: false });
 
 const DEFAULT_POST_IMAGE =
-  "https://i.imgur.com/zgq0EGE.jpeg";
+  "/assets/images/imgur.jpeg";
 
 /** Decorative story avatars (not the share link owner row) */
 const MOCK_STORIES = [
