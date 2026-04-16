@@ -11,6 +11,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { SiteBrandName } from "@/components/SiteBrandName";
 
 const navItems = [
   { href: '/', icon: Home, label: 'Overview', exact: true },
@@ -26,7 +27,7 @@ const NavContent = ({ pathname }: { pathname: string }) => (
       <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-primary shrink-0">
         <Globe className="h-3.5 w-3.5 text-primary-foreground" />
       </div>
-      <span className="font-bold text-sm tracking-tight">GoTrackerr</span>
+      <SiteBrandName className="font-bold text-sm tracking-tight" />
     </div>
 
     {/* Navigation */}

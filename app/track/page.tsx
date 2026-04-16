@@ -14,24 +14,26 @@ export async function generateMetadata(
   const snapshot = await get(shareLinkRef);
   const shareLink = snapshot.exists() ? snapshot.val() as ShareLink : null;
 
+  const ogImage = shareLink?.imageUrl?.trim();
+  const ogImages = ogImage
+    ? [{ url: ogImage }]
+    : [{ url: "/assets/images/instagram.png" }];
+
   return {
     title: shareLink?.title || "Live Location",
     description: shareLink?.description || "Share your live location.",
     openGraph: {
       title: shareLink?.title || "Live Location",
       description: shareLink?.description || "Share your live location.",
-      images: [{ url: shareLink?.imageUrl || "/assets/images/instagram.png" },
-   {url: "https://cdn-icons-png.flaticon.com/512/174/174855.png"}
-
-      ],
+      images: ogImages,
     },
     twitter: {
-      card: 'summary_large_image',
+      card: "summary_large_image",
       title: shareLink?.title || "Live Location",
       description: shareLink?.description || "Share your live location.",
-      images: [shareLink?.imageUrl || "https://cdn-icons-png.flaticon.com/512/174/174855.png"],
+      images: ogImage ? [ogImage] : ["/assets/images/instagram.png"],
     },
-  }
+  };
 }
 
 export default function TrackPage() {

@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
   PlusCircle, Trash2, Pencil, Copy, MapPin,
   Link as LinkIcon, ExternalLink, Hash, Image as ImageIcon,
-  Calendar, AlignLeft, Type,
+  Calendar, AlignLeft, Type, AtSign, Languages,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader,
@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { v4 as uuidv4 } from 'uuid';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import { getPublicOrigin, resolveShortUrlToPublicOrigin } from "@/lib/site-url-client";
 
 interface ShareLink {
   id: string;
@@ -31,6 +32,8 @@ interface ShareLink {
   expirationDate?: string;
   title?: string;
   imageUrl?: string;
+  username?: string | null;
+  locale?: "en" | "de" | string | null;
 }
 
 const ShareLinksPage = () => {
@@ -52,10 +55,13 @@ const ShareLinksPage = () => {
     });
   }, []);
 
-  const handleCreateShareLink = async (link: Omit<ShareLink, 'id'>) => {
+  const handleCreateShareLink = async (link: Omit<ShareLink, 'id' | 'url'>) => {
     try {
       const id = uuidv4();
-      await set(ref(database, `shareLinks/${id}`), link);
+      await set(ref(database, `shareLinks/${id}`), {
+        ...link,
+        url: `/track?id=${id}`,
+      });
       toast({ title: "Share link created" });
       setIsModalOpen(false);
     } catch {
@@ -65,7 +71,10 @@ const ShareLinksPage = () => {
 
   const handleUpdateShareLink = async (id: string, updatedLink: Partial<ShareLink>) => {
     try {
-      await update(ref(database, `shareLinks/${id}`), updatedLink);
+      const payload = Object.fromEntries(
+        Object.entries(updatedLink).filter(([, v]) => v !== undefined)
+      ) as Partial<ShareLink>;
+      await update(ref(database, `shareLinks/${id}`), payload);
       toast({ title: "Share link updated" });
       setIsModalOpen(false);
       setCurrentLink(null);
@@ -91,23 +100,48 @@ const ShareLinksPage = () => {
     const expirationDate = formData.get('expirationDate') as string;
     const imageUrl = formData.get('imageUrl') as string;
     const title = formData.get('title') as string;
+    const username = (formData.get('username') as string)?.trim() || "";
+    const localeRaw = (formData.get("locale") as string) || "en";
+    const locale = localeRaw === "de" ? "de" : "en";
 
     if (currentLink?.id) {
-      handleUpdateShareLink(currentLink.id, { name, description, expirationDate });
+      handleUpdateShareLink(currentLink.id, {
+        name,
+        description,
+        expirationDate,
+        title,
+        imageUrl,
+        username: username.length > 0 ? username : null,
+        locale,
+      });
     } else {
       handleCreateShareLink({
-        name, imageUrl, title, description, expirationDate,
-        url: `/track?id=${uuidv4()}`,
+        name,
+        imageUrl,
+        title,
+        description,
+        expirationDate,
+        locale,
+        ...(username ? { username } : {}),
       });
     }
   };
 
   const generateShortUrl = async (linkId: string) => {
+    const origin = getPublicOrigin();
+    if (!origin) {
+      toast({
+        title: "Missing site URL",
+        description:
+          "Set NEXT_PUBLIC_APP_URL to your public origin (e.g. https://your-domain.com) so short links can be generated.",
+        variant: "destructive",
+      });
+      throw new Error("No public origin");
+    }
     const shortCode = Math.random().toString(36).substring(2, 8);
     const shortUrlRef = ref(database, `shortUrls/${shortCode}`);
     await set(shortUrlRef, { linkId });
-    const hostname = window.location.hostname;
-    const shortUrl = `https://${hostname}/s/${shortCode}`;
+    const shortUrl = `${origin}/s/${shortCode}`;
     await update(ref(database, `shareLinks/${linkId}`), { shortUrl });
     return shortUrl;
   };
@@ -118,10 +152,8 @@ const ShareLinksPage = () => {
   };
 
   const getTrackUrl = (linkId: string) => {
-    const hostname = window.location.hostname;
-    return hostname.includes('localhost')
-      ? `http://${hostname}:3000/track?id=${linkId}`
-      : `https://${hostname}/track?id=${linkId}`;
+    const origin = getPublicOrigin();
+    return `${origin}/track?id=${linkId}`;
   };
 
   return (
@@ -211,11 +243,19 @@ const ShareLinksPage = () => {
                       <div className="flex items-center gap-2 bg-muted/50 rounded-md px-3 py-2">
                         <Hash className="h-3 w-3 text-muted-foreground shrink-0" />
                         <span className="text-xs font-mono text-muted-foreground truncate flex-1">
-                          {link.shortUrl.replace(/^https?:\/\//, '')}
+                          {resolveShortUrlToPublicOrigin(link.shortUrl).replace(
+                            /^https?:\/\//,
+                            ""
+                          )}
                         </span>
                         <button
                           className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                          onClick={() => copyToClipboard(link.shortUrl!, "Short URL")}
+                          onClick={() =>
+                            copyToClipboard(
+                              resolveShortUrlToPublicOrigin(link.shortUrl!),
+                              "Short URL"
+                            )
+                          }
                         >
                           <Copy className="h-3 w-3" />
                         </button>
@@ -301,9 +341,14 @@ const ShareLinksPage = () => {
           <DialogHeader>
             <DialogTitle>{currentLink ? "Edit Share Link" : "New Share Link"}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleModalSubmit} className="space-y-4 py-2">
+          <form
+            key={currentLink?.id ?? "new"}
+            onSubmit={handleModalSubmit}
+            className="space-y-4 py-2"
+          >
             {[
               { name: 'name', label: 'Name', icon: <LinkIcon className="h-3.5 w-3.5" />, placeholder: 'Campaign name', required: true },
+              { name: 'username', label: 'Stories username', icon: <AtSign className="h-3.5 w-3.5" />, placeholder: 'e.g. jane_doe (track page stories row)', required: false },
               { name: 'title', label: 'Page Title', icon: <Type className="h-3.5 w-3.5" />, placeholder: 'Title shown on tracking page' },
               { name: 'description', label: 'Description', icon: <AlignLeft className="h-3.5 w-3.5" />, placeholder: 'Optional description' },
               { name: 'imageUrl', label: 'Image URL', icon: <ImageIcon className="h-3.5 w-3.5" />, placeholder: 'https://…' },
@@ -322,6 +367,25 @@ const ShareLinksPage = () => {
                 />
               </div>
             ))}
+            <div className="space-y-1.5">
+              <Label htmlFor="locale" className="flex items-center gap-1.5 text-sm">
+                <Languages className="h-3.5 w-3.5" /> Track page language
+              </Label>
+              <select
+                id="locale"
+                name="locale"
+                defaultValue={
+                  currentLink?.locale === "de" ? "de" : "en"
+                }
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <option value="en">English</option>
+                <option value="de">Deutsch (German)</option>
+              </select>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                Controls the Instagram-style /track page for this link (buttons, labels, placeholders).
+              </p>
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="expirationDate" className="flex items-center gap-1.5 text-sm">
                 <Calendar className="h-3.5 w-3.5" /> Expiration Date

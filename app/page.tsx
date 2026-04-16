@@ -14,6 +14,7 @@ import { database } from "@/lib/firebase";
 import { ref, onValue } from "firebase/database";
 import { Location } from "@/components/interfaces/location.interface";
 import dynamic from 'next/dynamic';
+import { SiteBrandName } from "@/components/SiteBrandName";
 
 const Map = dynamic(() => import('@/components/Map'), { ssr: false });
 
@@ -107,7 +108,7 @@ export default function Home() {
             <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary">
               <Globe className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="font-bold text-lg tracking-tight">GoTrackerr</span>
+            <SiteBrandName className="font-bold text-lg tracking-tight" />
           </div>
 
           <div className="flex items-center gap-4">

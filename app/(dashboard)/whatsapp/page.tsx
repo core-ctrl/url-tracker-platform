@@ -3,7 +3,7 @@ import { WhatsAppSendForm } from "./WhatsAppSendForm";
 import { MessageCircle } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "WhatsApp | GoTrackerr",
+  title: "WhatsApp",
   description: "Send a test message via WhatsApp Cloud API",
 };
 

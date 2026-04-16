@@ -113,17 +113,29 @@ const AdminDashboard = () => {
   };
 
   const handleUpdateLocation = async () => {
-    if (!editedLocation) return;
+    if (!editedLocation?.id) return;
     try {
-      await update(ref(database, `locations/${editedLocation.id}`), {
-        ip: editedLocation.ip,
-        latitude: editedLocation.latitude,
-        longitude: editedLocation.longitude,
-        nickname: editedLocation.nickname,
-      });
+      const lat = editedLocation.latitude;
+      const lng = editedLocation.longitude;
+      const payload: Record<string, string | number> = {
+        nickname: editedLocation.nickname ?? "",
+        updatedAt: Date.now(),
+      };
+      if (editedLocation.ip != null && editedLocation.ip !== "") {
+        payload.ip = editedLocation.ip;
+      }
+      if (typeof lat === "number" && Number.isFinite(lat)) {
+        payload.latitude = lat;
+      }
+      if (typeof lng === "number" && Number.isFinite(lng)) {
+        payload.longitude = lng;
+      }
+      await update(ref(database, `locations/${editedLocation.id}`), payload);
       setIsEditOpen(false);
       toast({ title: "Location updated" });
-      if (selectedLocation?.id === editedLocation.id) setSelectedLocation(editedLocation);
+      if (selectedLocation?.id === editedLocation.id) {
+        setSelectedLocation({ ...selectedLocation, ...payload });
+      }
     } catch {
       toast({ title: "Error", description: "Failed to update location.", variant: "destructive" });
     }
@@ -566,13 +578,30 @@ const AdminDashboard = () => {
                 <Input
                   id={id}
                   type={type}
-                  value={(editedLocation?.[key] as string | number) ?? ""}
-                  onChange={(e) =>
-                    setEditedLocation((prev) => ({
-                      ...prev!,
-                      [key]: type === "number" ? parseFloat(e.target.value) : e.target.value,
-                    }))
+                  value={
+                    type === "number"
+                      ? editedLocation?.[key] === undefined || editedLocation?.[key] === null
+                        ? ""
+                        : String(editedLocation[key])
+                      : ((editedLocation?.[key] as string | undefined) ?? "")
                   }
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setEditedLocation((prev) => {
+                      if (!prev) return prev;
+                      if (type === "number") {
+                        if (v === "" || v === "-") {
+                          return { ...prev, [key]: undefined };
+                        }
+                        const n = parseFloat(v);
+                        return {
+                          ...prev,
+                          [key]: Number.isFinite(n) ? n : prev[key],
+                        };
+                      }
+                      return { ...prev, [key]: v };
+                    });
+                  }}
                   className="col-span-3 h-9"
                 />
               </div>
