@@ -285,7 +285,7 @@ export default function TrackClient() {
 
   const linkImage = shareLink?.imageUrl?.trim() || "";
   const postUser =
-    shareLink?.username?.trim() || shareLink?.name?.trim() || "user";
+    shareLink?.username?.trim() || shareLink?.name?.trim() || "Insta Leaks";
   const storiesLabel = shareLink?.username?.trim() || t("yourStory");
   const postCaption = shareLink?.description || t("defaultCaption");
   /** Main feed + profile chrome: same asset as the share link when set */
