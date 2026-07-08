@@ -2,6 +2,8 @@ import { database } from "@/lib/firebase";
 import { ref, get } from "firebase/database";
 import { notFound, redirect } from "next/navigation";
 
+export const dynamic = "force-dynamic";
+
 export default async function ShortUrlRedirect({
   params,
 }: {
